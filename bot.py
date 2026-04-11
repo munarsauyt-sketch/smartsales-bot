@@ -80,6 +80,72 @@ def init_demo():
         {"cat": "CS2", "title": "Аккаунт CS2 Supreme + AWP Dragon Lore", "desc": "Supreme ранг! AWP Dragon Lore Field Tested. 3400 часов. Топовый аккаунт.", "price": 28000},
         {"cat": "CS2", "title": "CS2 Prime активация аккаунта", "desc": "Активирую Prime статус на вашем аккаунте. Безопасно и быстро. Фаст до 30 минут.", "price": 1400},
         {"cat": "CS2", "title": "Аккаунт CS2 Gold Nova 3, чистый", "desc": "Gold Nova 3, 680 часов. Чистый аккаунт без банов. 4 скина включая M4A4 Howl копия.", "price": 1800},
+        # МЕЛКИЕ — BRAWL STARS (200-400р)
+        {"cat": "Brawl Stars", "title": "170 гемов Brawl Stars фаст", "desc": "170 гемов — хватит на скин или Brawl Pass. Пополню за 10 минут.", "price": 300},
+        {"cat": "Brawl Stars", "title": "80 гемов Brawl Stars быстро", "desc": "80 гемов на ваш аккаунт. Нужен только тег. Фаст, работаю без задержек.", "price": 200},
+        {"cat": "Brawl Stars", "title": "Старт аккаунт 5 бравлеров", "desc": "Новый аккаунт, 5 разных бравлеров включая Эль Примо. 1800 трофеев. Дёшево!", "price": 250},
+        {"cat": "Brawl Stars", "title": "Аккаунт 8 бравлеров 3к трофеев", "desc": "8 бравлеров, Шелли и Нита прокачаны. 3200 трофеев. Без привязки.", "price": 350},
+        {"cat": "Brawl Stars", "title": "40 гемов + 2 скина бесплатных", "desc": "40 гемов и 2 базовых скина на аккаунте. Хорошо для старта.", "price": 200},
+        {"cat": "Brawl Stars", "title": "Аккаунт 10 бравлеров старт Серебро", "desc": "10 бравлеров, ранг Серебро 3. Кольт и Бул 9 уровень. Чистая почта.", "price": 300},
+        {"cat": "Brawl Stars", "title": "100 гемов фаст без предоплаты", "desc": "100 гемов. Работаю по схеме: ты первый — я быстро. 50+ продаж.", "price": 280},
+        {"cat": "Brawl Stars", "title": "Аккаунт 6 бравлеров Динамайк макс", "desc": "6 бравлеров, Динамайк 11 уровень, Бо 8. 2500 трофеев. Быстрая передача.", "price": 220},
+        {"cat": "Brawl Stars", "title": "Старт аккаунт Колетт + Эш разблокированы", "desc": "Аккаунт с Колетт и Эшем. 4100 трофеев. 7 бравлеров общих.", "price": 380},
+        {"cat": "Brawl Stars", "title": "50 гемов дёшево без предоплаты", "desc": "50 гемов — цена ниже рынка. Нужен тег игрока. Фаст 5 минут.", "price": 210},
+        # МЕЛКИЕ — PUBG MOBILE
+        {"cat": "PUBG Mobile", "title": "60 UC PUBG фаст", "desc": "60 UC — хватит на один выбор. Введу на ваш ID за 5 минут.", "price": 200},
+        {"cat": "PUBG Mobile", "title": "180 UC PUBG Mobile недорого", "desc": "180 UC. Нужен ID игрока. Отправляю быстро, есть отзывы.", "price": 320},
+        {"cat": "PUBG Mobile", "title": "Аккаунт 12 уровень 3 скина", "desc": "12 уровень, 3 скина персонажа включая Hazmat Suit. Старт дёшево.", "price": 250},
+        {"cat": "PUBG Mobile", "title": "Аккаунт 20 уровень Silver ранг", "desc": "20 лвл, ранг Серебро. 2 скина оружия. Без привязки к номеру.", "price": 350},
+        {"cat": "PUBG Mobile", "title": "120 UC пополнение 15 минут", "desc": "120 UC на ваш аккаунт. Нужен только ID. Без обмана, 80+ продаж.", "price": 260},
+        {"cat": "PUBG Mobile", "title": "Аккаунт 8 уровень старт", "desc": "8 уровень, чистый аккаунт. 1 скин. Хорошо для тех кто только начинает.", "price": 200},
+        {"cat": "PUBG Mobile", "title": "Аккаунт 17 уровень 5 скинов", "desc": "17 лвл, 5 скинов персонажей. Почта в комплекте. Фаст передача.", "price": 400},
+        {"cat": "PUBG Mobile", "title": "300 UC без накруток", "desc": "300 UC — честная цена без переплат. Работаю быстро и честно.", "price": 370},
+        {"cat": "PUBG Mobile", "title": "Аккаунт Bronze ранг 15 уровень", "desc": "15 уровень, Bronze ранг. 2 скина оружия АКМ и M416. Дёшево!", "price": 280},
+        {"cat": "PUBG Mobile", "title": "90 UC быстро и без обмана", "desc": "90 UC на аккаунт. 15 минут максимум. 100+ продаж.", "price": 230},
+        # МЕЛКИЕ — ROBLOX
+        {"cat": "Roblox", "title": "80 Robux фаст моментально", "desc": "80 Robux — введу за 5 минут. Нужен только ник аккаунта.", "price": 200},
+        {"cat": "Roblox", "title": "200 Robux недорого", "desc": "200 Robux на ваш аккаунт. Честно и быстро. 60+ довольных покупателей.", "price": 320},
+        {"cat": "Roblox", "title": "Аккаунт Roblox 2021 года старт", "desc": "Аккаунт с 2021 года, несколько хат, чистая история. Хорошее начало.", "price": 250},
+        {"cat": "Roblox", "title": "Аккаунт с игрой Brookhaven VIP", "desc": "Аккаунт с VIP в Brookhaven. 3 хаты куплено. Передам безопасно.", "price": 350},
+        {"cat": "Roblox", "title": "150 Robux + бонус хата", "desc": "150 Robux и хата в подарок на аккаунте. Отличный стартовый набор.", "price": 280},
+        {"cat": "Roblox", "title": "400 Robux выгоднее магазина", "desc": "400 Robux — дешевле чем в официальном магазине. Фаст.", "price": 390},
+        {"cat": "Roblox", "title": "100 Robux самая низкая цена", "desc": "100 Robux — быстро и надёжно. Уже 40+ продаж на этой неделе.", "price": 200},
+        {"cat": "Roblox", "title": "Аккаунт Murder Mystery 2 ножи", "desc": "Аккаунт с 3 редкими ножами в MM2. Передам сразу после оплаты.", "price": 370},
+        {"cat": "Roblox", "title": "Аккаунт Tower of Hell топ 400 побед", "desc": "Аккаунт с высоким рейтингом в Tower of Hell. 400+ побед.", "price": 300},
+        {"cat": "Roblox", "title": "Аккаунт 2022 года Adopt Me + Brookhaven", "desc": "Аккаунт 2022 года, Adopt Me и Brookhaven куплено. Без банов.", "price": 220},
+        # МЕЛКИЕ — STANDOFF 2
+        {"cat": "Standoff 2", "title": "Аккаунт 5 уровень старт дёшево", "desc": "5 уровень, 2 скина. Хороший старт для новичка. Быстрая передача.", "price": 200},
+        {"cat": "Standoff 2", "title": "1000 золотых монет фаст", "desc": "1000 монет на ваш аккаунт. Нужен только ник. Отправлю за 10 минут.", "price": 250},
+        {"cat": "Standoff 2", "title": "Аккаунт 10 уровень 3 скина", "desc": "10 уровень, 3 скина оружия включая АК Vulcan копия. Дёшево!", "price": 300},
+        {"cat": "Standoff 2", "title": "2000 золотых монет выгодно", "desc": "2000 монет. Работаю быстро, честно. 70+ продаж.", "price": 380},
+        {"cat": "Standoff 2", "title": "Аккаунт 8 уровень нож перочинный", "desc": "8 уровень, перочинный нож + 2 скина. Хорошее начало.", "price": 350},
+        {"cat": "Standoff 2", "title": "Скин Desert Eagle Asiimov", "desc": "Скин Desert Eagle Asiimov. Передам через трейд. Красивый скин!", "price": 280},
+        {"cat": "Standoff 2", "title": "500 золотых монет быстро", "desc": "500 монет — хватит на расходники и кейсы. Моментально.", "price": 200},
+        {"cat": "Standoff 2", "title": "Аккаунт 7 уровень АКМ скин", "desc": "7 уровень, скин АКМ Urban. 3 матча в ранговых. Дёшево.", "price": 230},
+        {"cat": "Standoff 2", "title": "3000 монет + скин ножа в подарок", "desc": "3000 золотых монет плюс скин ножа в подарок. Выгодно!", "price": 370},
+        {"cat": "Standoff 2", "title": "Аккаунт 14 уровень 6 скинов", "desc": "14 уровень, 6 скинов оружия. Почта в комплекте. Без привязки.", "price": 400},
+        # МЕЛКИЕ — STEAM
+        {"cat": "Steam", "title": "Steam пополнение 200 рублей фаст", "desc": "Пополню кошелёк Steam на 200р. Активирую код за 15 минут.", "price": 230},
+        {"cat": "Steam", "title": "Steam 300 рублей быстро", "desc": "300р на Steam кошелёк. Работаю честно, более 200 продаж.", "price": 340},
+        {"cat": "Steam", "title": "Аккаунт Steam 5 игр инди", "desc": "5 инди игр: Stardew Valley, Terraria, Celeste и др. Старый аккаунт.", "price": 350},
+        {"cat": "Steam", "title": "Steam карточки торговые 50 штук", "desc": "50 торговых карточек разных игр. Можно продать или скрафтить значки.", "price": 200},
+        {"cat": "Steam", "title": "Аккаунт Steam 3 игры + 200ч", "desc": "3 игры, 200+ часов налёта. Чистый аккаунт без банов.", "price": 280},
+        {"cat": "Steam", "title": "Steam 400 рублей выгодно", "desc": "400р на кошелёк Steam. Ниже рыночной цены. Фаст.", "price": 380},
+        {"cat": "Steam", "title": "Steam 150 рублей моментально", "desc": "150р — минимальное пополнение. Код придёт за 10 минут.", "price": 210},
+        {"cat": "Steam", "title": "Аккаунт Steam 2020 год 2 игры", "desc": "Аккаунт с 2020 года, 2 игры куплено. Чистая история.", "price": 250},
+        {"cat": "Steam", "title": "Steam подарок игра Plague Inc.", "desc": "Подарю игру Plague Inc. в Steam. Отправлю запрос в друзья и дарю.", "price": 200},
+        {"cat": "Steam", "title": "Аккаунт Steam Dota 2 500 часов", "desc": "Аккаунт с Dota 2, 500+ часов. Несколько косметических предметов.", "price": 300},
+        # МЕЛКИЕ — CS2
+        {"cat": "CS2", "title": "Аккаунт CS2 Silver 2 чистый", "desc": "Silver 2, 120 часов. Чистый без банов. Хорошо для старта ранговых.", "price": 350},
+        {"cat": "CS2", "title": "Скин P250 Sand Dune FT", "desc": "Скин P250 Sand Dune Field Tested. Чистый, без критичных царапин.", "price": 200},
+        {"cat": "CS2", "title": "Аккаунт CS2 без ранга 80ч", "desc": "Аккаунт без ранга, 80 часов. Для разогрева или alt-аккаунта.", "price": 250},
+        {"cat": "CS2", "title": "Аккаунт CS2 Silver 4 + кейс Chroma", "desc": "Silver 4, кейс Chroma в инвентаре. 200 часов. Без банов.", "price": 380},
+        {"cat": "CS2", "title": "Скин Glock Night FT", "desc": "Glock-18 Night FT. Популярный скин, хорошая цена.", "price": 300},
+        {"cat": "CS2", "title": "Аккаунт CS2 300ч Silver Elite", "desc": "Silver Elite, 300 часов. 2 скина в инвентаре. Готов к ранговым.", "price": 400},
+        {"cat": "CS2", "title": "Аккаунт CS2 новый 50ч для смурфа", "desc": "Свежий аккаунт 50 часов. Идеально для смурфинга или тренировок.", "price": 280},
+        {"cat": "CS2", "title": "Нож Gut Knife Scorched BS дёшево", "desc": "Gut Knife Scorched Battle Scarred. Нож дёшево — отличная находка!", "price": 390},
+        {"cat": "CS2", "title": "Граффити набор 10 штук CS2", "desc": "10 граффити разных включая редкие. Передам через трейд.", "price": 200},
+        {"cat": "CS2", "title": "Стикер памятный ESL Katowice", "desc": "Стикер с турнира ESL. Украсит любое оружие. Передам трейдом.", "price": 220},
     ]
 
     for d in demo_products:
@@ -169,7 +235,9 @@ async def show_catalog(update, ctx):
     kb.append([InlineKeyboardButton("◀️ Назад", callback_data="back_main")])
     await query.edit_message_text("📂 *Выберите категорию:*", parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(kb))
 
-async def show_category(update, ctx, category):
+PAGE_SIZE = 8
+
+async def show_category(update, ctx, category, page=0):
     query = update.callback_query
     await query.answer()
     items = [(pid, p) for pid, p in products.items() if p["category"] == category]
@@ -179,12 +247,24 @@ async def show_category(update, ctx, category):
             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("◀️ Назад", callback_data="catalog")]])
         )
         return
+    total = len(items)
+    start = page * PAGE_SIZE
+    end = start + PAGE_SIZE
+    page_items = items[start:end]
     kb = []
-    for pid, p in items:
+    for pid, p in page_items:
         kb.append([InlineKeyboardButton(f"{p['title']} — {p['price']}₽", callback_data=f"product_{pid}_0")])
-    kb.append([InlineKeyboardButton("◀️ Назад", callback_data="catalog")])
+    nav = []
+    if page > 0:
+        nav.append(InlineKeyboardButton("◀️ Назад", callback_data=f"catpage_{category}_{page-1}"))
+    if end < total:
+        nav.append(InlineKeyboardButton("Далее ▶️", callback_data=f"catpage_{category}_{page+1}"))
+    if nav:
+        kb.append(nav)
+    kb.append([InlineKeyboardButton("🔙 К категориям", callback_data="catalog")])
+    showing = f"{start+1}–{min(end,total)} из {total}"
     await query.edit_message_text(
-        f"{CAT_EMOJI.get(category,'📦')} *{category}* — {len(items)} товаров\n\nВыберите товар:",
+        f"{CAT_EMOJI.get(category,'📦')} *{category}* — {total} товаров\n_{showing}_\n\nВыберите товар:",
         parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(kb)
     )
 
