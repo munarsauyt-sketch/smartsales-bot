@@ -1,6 +1,7 @@
-TELEGRAM_TOKEN = "8490884391:AAEn7hQa-ExAy4NORCyzq_jK17y6w7RMAmU"
-GROQ_API_KEY   = "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"
-ADMIN_ID       = 1234567890  # ЗАМЕНИ НА СВОЙ TELEGRAM ID (узнай у @userinfobot)
+import os
+TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN", "")
+GROQ_API_KEY   = os.environ.get("GROQ_API_KEY", "")
+ADMIN_ID       = int(os.environ.get("ADMIN_ID", "1234567890"))
 YOOMONEY       = "4100118679419062"
 
 # Хранение пользователей в памяти
