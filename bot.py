@@ -254,11 +254,12 @@ async def show_category(update, ctx, category, page=0):
     kb = []
     for pid, p in page_items:
         kb.append([InlineKeyboardButton(f"{p['title']} — {p['price']}₽", callback_data=f"product_{pid}_0")])
+    cat_idx = CATEGORIES.index(category) if category in CATEGORIES else 0
     nav = []
     if page > 0:
-        nav.append(InlineKeyboardButton("◀️ Назад", callback_data=f"catpage_{category}_{page-1}"))
+        nav.append(InlineKeyboardButton("◀️ Назад", callback_data=f"cp_{cat_idx}_{page-1}"))
     if end < total:
-        nav.append(InlineKeyboardButton("Далее ▶️", callback_data=f"catpage_{category}_{page+1}"))
+        nav.append(InlineKeyboardButton("Далее ▶️", callback_data=f"cp_{cat_idx}_{page+1}"))
     if nav:
         kb.append(nav)
     kb.append([InlineKeyboardButton("🔙 К категориям", callback_data="catalog")])
