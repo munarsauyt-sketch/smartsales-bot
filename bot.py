@@ -980,8 +980,9 @@ async def button_handler(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         user_states[uid] = "add_title"
         user_temp[uid] = {"photos": []}
         await query.edit_message_text("📝 *Добавление товара*\n\nВведите название:", parse_mode="Markdown")
-    elif data == "list_my_products":
+    elif data.startswith("list_my_products"):
         await query.answer()
+        page = int(data.split("_")[-1]) if data != "list_my_products" else 0
         s = sellers.get(uid, {})
         my_pids = [p for p in s.get("products", []) if p in products]
         if not my_pids:
@@ -993,13 +994,25 @@ async def button_handler(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
                 ])
             )
             return
-        text = "📦 *Мои товары:*\n\n"
+        per_page = 15
+        total = len(my_pids)
+        start = page * per_page
+        end = start + per_page
+        page_pids = my_pids[start:end]
+        text = f"📦 *Мои товары* ({start+1}–{min(end,total)} из {total}):\n\n"
         kb = []
-        for pid in my_pids:
+        for pid in page_pids:
             p = products[pid]
             v = views_count.get(pid, 0)
-            text += f"• {p['title']} — {p['price']}₽ (👁{v})\n"
+            text += f"• {p['title'][:30]} — {p['price']}₽ (👁{v})\n"
             kb.append([InlineKeyboardButton(f"🗑 {p['title'][:28]}", callback_data=f"del_product_{pid}")])
+        nav = []
+        if page > 0:
+            nav.append(InlineKeyboardButton("◀️", callback_data=f"list_my_products_{page-1}"))
+        if end < total:
+            nav.append(InlineKeyboardButton("Далее ▶️", callback_data=f"list_my_products_{page+1}"))
+        if nav:
+            kb.append(nav)
         kb.append([InlineKeyboardButton("◀️ Назад", callback_data="my_shop")])
         await query.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(kb))
     elif data == "ai_settings":
