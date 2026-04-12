@@ -40,7 +40,7 @@ ad_products = []
 guarantees = {}
 
 # РЕКЛАМА
-sponsor_banner = None       # {pid, seller_id, text} — баннер при /start
+state_store = {"sponsor_banner": None}  # используем словарь чтобы избежать global
 verified_sellers = set()    # seller_id — верифицированные продавцы
 broadcast_queue = []        # [(seller_id, text, pid)] — очередь рассылок
 all_users = set()           # все пользователи бота (для рассылки)
@@ -170,8 +170,8 @@ async def start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     is_seller = uid in sellers
 
     # Показываем спонсорский баннер (если есть)
-    if sponsor_banner:
-        sp = sponsor_banner
+    if state_store["sponsor_banner"]:
+        sp = state_store["sponsor_banner"]
         p = products.get(sp.get("pid"), {})
         s_name = sellers.get(sp.get("seller_id"), {}).get("name", "")
         banner_text = (
@@ -614,7 +614,7 @@ async def ad_menu(update, ctx):
     await query.answer()
     uid = update.effective_user.id
     ver_status = "✅ Активен" if uid in verified_sellers else "❌ Нет"
-    has_banner = sponsor_banner and sponsor_banner.get("seller_id") == uid
+    has_banner = state_store["sponsor_banner"] and state_store["sponsor_banner"].get("seller_id") == uid
     banner_status = "✅ Активен" if has_banner else "❌ Нет"
 
     kb = [
@@ -647,7 +647,7 @@ async def ad_banner_page(update, ctx):
             "❌ Сначала добавьте товар.",
             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("◀️ Назад", callback_data="ad_menu")]]))
         return
-    has_banner = sponsor_banner and sponsor_banner.get("seller_id") == uid
+    has_banner = state_store["sponsor_banner"] and state_store["sponsor_banner"].get("seller_id") == uid
     yoo_link = f"https://yoomoney.ru/transfer/quickpay?receiver={YOOMONEY_WALLET}&sum={AD_BANNER_PRICE}&label=banner_{uid}&targets=Баннер+SmartSalesAI"
     kb = []
     if has_banner:
@@ -1123,11 +1123,10 @@ async def button_handler(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     elif data == "banner_select_product":
         await banner_select_product(update, ctx)
     elif data.startswith("set_banner_"):
-        global sponsor_banner
         await query.answer()
         pid = int(data[11:])
         p = products.get(pid, {})
-        sponsor_banner = {"pid": pid, "seller_id": uid, "text": f"Топовый товар от {p.get('seller_name','')}!"}
+        state_store["sponsor_banner"] = {"pid": pid, "seller_id": uid, "text": f"Топовый товар от {p.get('seller_name','')}!"}
         # Уведомляем админа
         try:
             await ctx.bot.send_message(ADMIN_ID,
@@ -1140,10 +1139,9 @@ async def button_handler(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             parse_mode="Markdown",
             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("◀️ Назад", callback_data="ad_menu")]]))
     elif data == "remove_banner":
-        global sponsor_banner
         await query.answer()
-        if sponsor_banner and sponsor_banner.get("seller_id") == uid:
-            sponsor_banner = None
+        if state_store["sponsor_banner"] and state_store["sponsor_banner"].get("seller_id") == uid:
+            state_store["sponsor_banner"] = None
         await query.answer("✅ Баннер снят")
         await ad_banner_page(update, ctx)
     elif data == "ad_broadcast":
@@ -1398,7 +1396,7 @@ async def handle_admin_commands(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             f"🏪 Продавцов: {len(sellers)}\n"
             f"✅ Верифицированных: {len(verified_sellers)}\n"
             f"📣 Рекламных товаров: {len(ad_products)}\n"
-            f"🖼 Баннер активен: {'Да' if sponsor_banner else 'Нет'}"
+            f"🖼 Баннер активен: {'Да' if state_store["sponsor_banner"] else 'Нет'}"
         )
         await update.message.reply_text(text_out, parse_mode="Markdown")
 
