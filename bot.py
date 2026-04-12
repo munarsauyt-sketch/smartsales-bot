@@ -4,7 +4,7 @@ import logging
 import re
 import random
 
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, InputMediaPhoto
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, InputMediaPhoto, ReplyKeyboardMarkup, KeyboardButton, ReplyKeyboardRemove
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, MessageHandler, filters, ContextTypes
 from groq import Groq
 
@@ -152,6 +152,38 @@ def stars(rating):
     full = int(rating)
     return "⭐" * full + ("" if rating == full else "")
 
+# --- ПОМОЩЬ ---
+async def help_command(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    text = (
+        "📖 *Как работает SmartSalesAI*\n\n"
+        "🛒 *Покупателям:*\n"
+        "• Выбери категорию → найди товар\n"
+        "• Нажми «Написать продавцу»\n"
+        "• Если продавец не ответил — ИИ ответит за него\n"
+        "• Используй промокод для скидки\n\n"
+        "🏪 *Продавцам:*\n"
+        "• Нажми «Стать продавцом» → добавь товары\n"
+        "• Купи ИИ-помощника за 500₽/мес\n"
+        "• ИИ продаёт за тебя пока ты спишь 😴\n"
+        "• Настрой промпт и таймер ответа\n\n"
+        "🤖 *ИИ-помощник:*\n"
+        "• Отвечает автоматически если ты занят\n"
+        "• Знает все твои товары\n"
+        "• Работает 24/7 без выходных\n\n"
+        "💳 *Оплата ИИ:* ЮMoney `4100118679419062`\n\n"
+        "По вопросам: @SmartSalesAI_kz_bot"
+    )
+    await update.effective_message.reply_text(text, parse_mode="Markdown",
+        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🚀 Начать", callback_data="back_main")]]))
+
+async def show_catalog_cmd(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    kb = [[InlineKeyboardButton(f"{CAT_EMOJI.get(c,'📦')} {c}", callback_data=f"cat_{c}")] for c in CATEGORIES]
+    kb.append([InlineKeyboardButton("◀️ Назад", callback_data="back_main")])
+    await update.effective_message.reply_text(
+        "📂 *Выберите категорию:*", parse_mode="Markdown",
+        reply_markup=InlineKeyboardMarkup(kb)
+    )
+
 # --- ГЛАВНОЕ МЕНЮ ---
 async def start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     uid = update.effective_user.id
@@ -181,9 +213,17 @@ async def start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         "📦 Моментально выдаю товар после оплаты\n\n"
         "Твой бизнес больше не спит. Давай начнём!"
     )
+    bottom_kb = ReplyKeyboardMarkup(
+        [[KeyboardButton("📖 Как работает бот"), KeyboardButton("🛒 Каталог")]],
+        resize_keyboard=True, is_persistent=True
+    )
     await update.effective_message.reply_text(
         text, parse_mode="Markdown",
         reply_markup=InlineKeyboardMarkup(kb)
+    )
+    await update.effective_message.reply_text(
+        "👇 Быстрые кнопки:",
+        reply_markup=bottom_kb
     )
 
 # --- ПОИСК ---
@@ -695,6 +735,14 @@ async def handle_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     text = update.message.text or ""
     state = user_states.get(uid, "")
 
+    # Обработка нижних кнопок
+    if text == "📖 Как работает бот":
+        await help_command(update, ctx)
+        return
+    if text == "🛒 Каталог":
+        await show_catalog_cmd(update, ctx)
+        return
+
     if state == "searching":
         user_states[uid] = None
         await do_search(uid, text, update, ctx)
@@ -1141,6 +1189,8 @@ async def handle_activate(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 def main():
     app = Application.builder().token(TELEGRAM_TOKEN).build()
     app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("help", help_command))
+    app.add_handler(CommandHandler("catalog", lambda u,c: show_catalog_cmd(u,c)))
     app.add_handler(MessageHandler(filters.COMMAND & filters.Regex(r'^/activate_'), handle_activate))
     app.add_handler(CallbackQueryHandler(button_handler))
     app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
