@@ -456,11 +456,62 @@ async def start_chat(update, ctx, pid):
         pass
     if uid in pending_ai_tasks:
         pending_ai_tasks[uid].cancel()
+    # Сразу анализируем товар и отправляем первое сообщение от ИИ
+    asyncio.create_task(ai_instant_intro(ctx, uid, pid, buyer_name))
+    # Запускаем таймер для ответа на сообщения покупателя
     task = asyncio.create_task(ai_reply_after_delay(ctx, uid, pid, buyer_name))
     pending_ai_tasks[uid] = task
 
+DEFAULT_AI_PROMPT = "Ты продавец цифровых товаров. Пиши коротко и по делу — только преимущества товара без воды. Не здоровайся длинно, сразу к сути. Отвечай на русском."
+
+AI_TIMERS = {
+    "30s":  ("30 секунд", 30),
+    "1m":   ("1 минута", 60),
+    "2m":   ("2 минуты", 120),
+    "3m":   ("3 минуты", 180),
+    "5m":   ("5 минут", 300),
+    "10m":  ("10 минут", 600),
+    "15m":  ("15 минут", 900),
+    "30m":  ("30 минут", 1800),
+    "1h":   ("1 час", 3600),
+    "2h":   ("2 часа", 7200),
+}
+
+async def ai_instant_intro(ctx, buyer_id, pid, buyer_name):
+    """Сразу анализирует товар и пишет покупателю первое сообщение"""
+    await asyncio.sleep(60)  # ждём 1 минуту перед первым сообщением
+    chat = active_chats.get(buyer_id)
+    if not chat:
+        return
+    p = products.get(pid, {})
+    seller = sellers.get(chat["seller_id"], {})
+    # Используем промпт продавца или дефолтный
+    prompt = seller.get("ai_prompt", "") or DEFAULT_AI_PROMPT
+    # Собираем все товары продавца
+    seller_prods = [products[pid2] for pid2 in seller.get("products", []) if pid2 in products]
+    other_prods = [p2["title"] for p2 in seller_prods if p2["title"] != p.get("title","")][:3]
+    other_text = f"\nДругие товары продавца: {', '.join(other_prods)}" if other_prods else ""
+    try:
+        resp = groq_client.chat.completions.create(
+            model="llama-3.1-8b-instant",
+            messages=[
+                {"role": "system", "content": f"{prompt}\nТовар: {p.get('title','')}. {p.get('description','')}. Цена: {p.get('price','')}₽.{other_text}"},
+                {"role": "user", "content": f"Покупатель {buyer_name} открыл чат по товару '{p.get('title','')}'. Напиши короткое приветствие и 2-3 главных преимущества этого товара. Максимум 3 предложения."}
+            ],
+            max_tokens=150
+        )
+        intro_text = resp.choices[0].message.content
+        await ctx.bot.send_message(buyer_id, f"🤖 *{seller.get('name','Продавец')}:*\n\n{intro_text}", parse_mode="Markdown")
+    except Exception as e:
+        logger.error(f"AI intro error: {e}")
+
 async def ai_reply_after_delay(ctx, buyer_id, pid, buyer_name):
-    await asyncio.sleep(120)
+    chat_info = active_chats.get(buyer_id, {})
+    seller_id = chat_info.get("seller_id")
+    seller_tmp = sellers.get(seller_id, {})
+    timer_key = seller_tmp.get("ai_timer", "2m")
+    delay = AI_TIMERS.get(timer_key, ("2 минуты", 120))[1]
+    await asyncio.sleep(delay)
     chat = active_chats.get(buyer_id)
     if not chat or chat.get("ai_replied"):
         return
@@ -468,15 +519,18 @@ async def ai_reply_after_delay(ctx, buyer_id, pid, buyer_name):
     seller = sellers.get(chat["seller_id"], {})
     if not seller.get("ai_enabled") or not seller.get("ai_paid"):
         return
-    prompt = seller.get("ai_prompt", "Ты продавец цифровых товаров.")
+    prompt = seller.get("ai_prompt", "") or DEFAULT_AI_PROMPT
+    seller_prods = [products[pid2] for pid2 in seller.get("products", []) if pid2 in products]
+    other_prods = [p2["title"] for p2 in seller_prods if p2["title"] != p.get("title","")][:3]
+    other_text = f"\nДругие товары: {', '.join(other_prods)}" if other_prods else ""
     try:
         resp = groq_client.chat.completions.create(
             model="llama-3.1-8b-instant",
             messages=[
-                {"role": "system", "content": f"{prompt}\nТовар: {p.get('title','')}. {p.get('description','')}. Цена: {p.get('price','')}₽. Отвечай кратко на русском."},
-                {"role": "user", "content": f"Покупатель {buyer_name} интересуется. Поприветствуй и предложи купить."}
+                {"role": "system", "content": f"{prompt}\nТовар: {p.get('title','')}. {p.get('description','')}. Цена: {p.get('price','')}₽.{other_text} Отвечай кратко на русском, без воды."},
+                {"role": "user", "content": f"Покупатель {buyer_name} написал и ждёт ответа. Ответь коротко — 2-3 предложения максимум."}
             ],
-            max_tokens=300
+            max_tokens=200
         )
         ai_text = resp.choices[0].message.content
         chat["ai_replied"] = True
@@ -590,13 +644,17 @@ async def ai_settings(update, ctx):
         )
         return
     ai_on = s.get("ai_enabled", False)
+    timer_key = s.get("ai_timer", "2m")
+    timer_label = AI_TIMERS.get(timer_key, ("2 минуты", 120))[0]
     kb = [
         [InlineKeyboardButton("🔴 Выключить" if ai_on else "🟢 Включить", callback_data="toggle_ai")],
         [InlineKeyboardButton("✏️ Изменить промпт", callback_data="edit_ai_prompt")],
+        [InlineKeyboardButton(f"⏱ Таймер: {timer_label}", callback_data="ai_timer_settings")],
         [InlineKeyboardButton("◀️ Назад", callback_data="my_shop")],
     ]
     await query.edit_message_text(
-        f"🤖 *ИИ-помощник*\n\nСтатус: {'✅ Работает' if ai_on else '❌ Выключен'}\n\n"
+        f"🤖 *ИИ-помощник*\n\nСтатус: {'✅ Работает' if ai_on else '❌ Выключен'}\n"
+        f"⏱ Отвечает через: *{timer_label}*\n\n"
         f"📝 Промпт:\n_{s.get('ai_prompt','')[:200]}_",
         parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(kb)
     )
@@ -971,6 +1029,33 @@ async def button_handler(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         if uid in sellers:
             sellers[uid]["ai_enabled"] = not sellers[uid].get("ai_enabled", False)
         await buy_ai_page(update, ctx)
+    elif data == "ai_timer_settings":
+        await query.answer()
+        kb = []
+        row = []
+        for key, (label, secs) in AI_TIMERS.items():
+            s = sellers.get(uid, {})
+            current = s.get("ai_timer", "2m")
+            check = "✅ " if key == current else ""
+            row.append(InlineKeyboardButton(f"{check}{label}", callback_data=f"set_timer_{key}"))
+            if len(row) == 2:
+                kb.append(row)
+                row = []
+        if row:
+            kb.append(row)
+        kb.append([InlineKeyboardButton("◀️ Назад", callback_data="ai_settings")])
+        await query.edit_message_text(
+            "⏱ *Таймер ИИ-ответа*\n\nЧерез сколько времени ИИ отвечает если продавец молчит:",
+            parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(kb)
+        )
+    elif data.startswith("set_timer_"):
+        await query.answer()
+        timer_key = data[10:]
+        if timer_key in AI_TIMERS and uid in sellers:
+            sellers[uid]["ai_timer"] = timer_key
+            label = AI_TIMERS[timer_key][0]
+            await query.answer(f"✅ Таймер установлен: {label}")
+        await ai_settings(update, ctx)
     elif data == "edit_ai_prompt":
         await query.answer()
         user_states[uid] = "set_ai_prompt"
