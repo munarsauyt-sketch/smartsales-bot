@@ -222,7 +222,7 @@ async def start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         reply_markup=InlineKeyboardMarkup(kb)
     )
     await update.effective_message.reply_text(
-        "👇 Быстрые кнопки:",
+        "👇",
         reply_markup=bottom_kb
     )
 
