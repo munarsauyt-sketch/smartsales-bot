@@ -1396,7 +1396,7 @@ async def handle_admin_commands(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             f"🏪 Продавцов: {len(sellers)}\n"
             f"✅ Верифицированных: {len(verified_sellers)}\n"
             f"📣 Рекламных товаров: {len(ad_products)}\n"
-            f"🖼 Баннер активен: {'Да' if state_store["sponsor_banner"] else 'Нет'}"
+            f"🖼 Баннер активен: {'Да' if state_store.get('sponsor_banner') else 'Нет'}"
         )
         await update.message.reply_text(text_out, parse_mode="Markdown")
 
