@@ -1123,10 +1123,10 @@ async def button_handler(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     elif data == "banner_select_product":
         await banner_select_product(update, ctx)
     elif data.startswith("set_banner_"):
+        global sponsor_banner
         await query.answer()
         pid = int(data[11:])
         p = products.get(pid, {})
-        global sponsor_banner
         sponsor_banner = {"pid": pid, "seller_id": uid, "text": f"Топовый товар от {p.get('seller_name','')}!"}
         # Уведомляем админа
         try:
@@ -1140,8 +1140,8 @@ async def button_handler(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             parse_mode="Markdown",
             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("◀️ Назад", callback_data="ad_menu")]]))
     elif data == "remove_banner":
-        await query.answer()
         global sponsor_banner
+        await query.answer()
         if sponsor_banner and sponsor_banner.get("seller_id") == uid:
             sponsor_banner = None
         await query.answer("✅ Баннер снят")
