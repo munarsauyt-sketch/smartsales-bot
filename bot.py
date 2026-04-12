@@ -2,6 +2,7 @@ import os
 import asyncio
 import logging
 import re
+import random
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, InputMediaPhoto
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, MessageHandler, filters, ContextTypes
@@ -169,8 +170,12 @@ async def start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     else:
         kb.append([InlineKeyboardButton("📦 Стать продавцом", callback_data="become_seller")])
 
+    online = random.randint(70, 80)
+    viewers = random.randint(12, 28)
     text = (
-        "🎮 *SmartSalesAI* — цифровой магазин\n\n"
+        f"🎮 *SmartSalesAI* — цифровой магазин\n\n"
+        f"🟢 Сейчас онлайн: *{online} человек*\n"
+        f"👁 Просматривают товары: *{viewers}*\n\n"
         "⚡ Отвечаю клиентам за 3 секунды (24/7)\n"
         "💰 Продаю и консультирую как живой эксперт\n"
         "📦 Моментально выдаю товар после оплаты\n\n"
@@ -248,7 +253,8 @@ async def show_top_sellers(update, ctx):
         [(uid, s) for uid, s in sellers.items()],
         key=lambda x: top_sellers.get(x[0], 0), reverse=True
     )[:10]
-    text = "🏆 *Топ продавцов SmartSalesAI*\n\n"
+    total_online = random.randint(70, 80)
+    text = f"🏆 *Топ продавцов SmartSalesAI*\n🟢 Сейчас онлайн: {total_online} покупателей\n\n"
     medals = ["🥇", "🥈", "🥉"] + ["4️⃣","5️⃣","6️⃣","7️⃣","8️⃣","9️⃣","🔟"]
     for i, (uid, s) in enumerate(sorted_sellers):
         rating = get_seller_rating(uid)
@@ -306,8 +312,9 @@ async def show_category(update, ctx, category, page=0):
         kb.append(nav)
     kb.append([InlineKeyboardButton("🔙 К категориям", callback_data="catalog")])
     showing = f"{start+1}–{min(end,total)} из {total}"
+    cat_online = random.randint(8, 25)
     await query.edit_message_text(
-        f"{CAT_EMOJI.get(category,'📦')} *{category}* — {total} товаров\n_{showing}_\n\nВыберите товар:",
+        f"{CAT_EMOJI.get(category,'📦')} *{category}* — {total} товаров\n_{showing}_ · 🟢 {cat_online} онлайн\n\nВыберите товар:",
         parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(kb)
     )
 
@@ -349,7 +356,8 @@ async def show_product(update, ctx, pid, photo_idx=0):
         f"👤 Продавец: {p['seller_name']} ⭐{seller_rating}"
         f"{rev_text}"
         f"{ai_badge}\n"
-        f"👁 Просмотров: {views_count.get(pid, 0)}"
+        f"👁 Просмотров: {views_count.get(pid, 0)}\n"
+        f"🔥 Смотрят прямо сейчас: *{random.randint(2, 7)} человека*"
     )
     kb = [
         [InlineKeyboardButton("💬 Написать продавцу", callback_data=f"chat_seller_{pid}")],
