@@ -8,6 +8,43 @@ from telegram.ext import Application, CommandHandler, CallbackQueryHandler, Mess
 from groq import Groq
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+import json
+
+PERSIST_FILE = "banners_data.json"
+
+def save_banners():
+    """Сохраняем баннеры на диск"""
+    try:
+        data = {
+            "catalog_banner": state_store.get("catalog_banner"),
+            "cat_banners": state_store.get("cat_banners", {}),
+            "ad_products": ad_products,
+            "verified_sellers": list(verified_sellers),
+        }
+        with open(PERSIST_FILE, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False)
+    except Exception as e:
+        logger.error(f"save_banners error: {e}")
+
+def load_banners():
+    """Загружаем баннеры с диска при старте"""
+    try:
+        with open(PERSIST_FILE, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        if data.get("catalog_banner"):
+            state_store["catalog_banner"] = data["catalog_banner"]
+        if data.get("cat_banners"):
+            state_store["cat_banners"] = data["cat_banners"]
+        if data.get("ad_products"):
+            ad_products.extend(data["ad_products"])
+        if data.get("verified_sellers"):
+            verified_sellers.update(data["verified_sellers"])
+        logger.info("Баннеры загружены с диска")
+    except FileNotFoundError:
+        logger.info("Файл баннеров не найден — начинаем чисто")
+    except Exception as e:
+        logger.error(f"load_banners error: {e}")
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN", "")
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "")
 ADMIN_ID = int(os.environ.get("ADMIN_ID", "1048682172"))
@@ -197,6 +234,7 @@ def init_demo():
     promo_codes["SMART10"] = {"seller_id": ADMIN_ID, "discount_pct": 10, "uses_left": 100}
     promo_codes["SALE20"] = {"seller_id": ADMIN_ID, "discount_pct": 20, "uses_left": 50}
 init_demo()
+load_banners()  # Восстанавливаем баннеры после перезапуска
 
 def get_seller_rating(seller_id):
     total, count = 0, 0
@@ -1091,6 +1129,7 @@ async def handle_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         file_id = user_temp.get(uid, {}).get("banner_photo")
         if file_id:
             state_store["catalog_banner"] = {"photo_id": file_id, "caption": caption, "seller_id": uid}
+        save_banners()
         user_states[uid] = None
         await update.message.reply_text(
             "✅ *Основной баннер активирован!*\n\n"
@@ -1106,6 +1145,7 @@ async def handle_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         category = user_temp.get(uid, {}).get("cat_banner_category", "")
         if file_id and category:
             state_store["cat_banners"][category] = {"photo_id": file_id, "caption": caption, "seller_id": uid}
+        save_banners()
         user_states[uid] = None
         await update.message.reply_text(
             f"✅ *Саб-баннер в {category} активирован!*\n\n"
@@ -1324,6 +1364,7 @@ async def button_handler(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         await query.answer()
         if state_store["catalog_banner"] and state_store["catalog_banner"].get("seller_id") == uid:
             state_store["catalog_banner"] = None
+            save_banners()
         await query.answer("✅ Основной баннер снят")
         await ad_main_banner_page(update, ctx)
 
@@ -1348,6 +1389,7 @@ async def button_handler(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         category = data[18:]
         if category in state_store["cat_banners"] and state_store["cat_banners"][category].get("seller_id") == uid:
             del state_store["cat_banners"][category]
+            save_banners()
         await query.answer(f"✅ Саб-баннер снят")
         await ad_cat_banner_page(update, ctx)
 
@@ -1394,6 +1436,7 @@ async def button_handler(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         else:
             ad_products.append(pid)
             await query.answer("📣 Товар теперь первый!")
+        save_banners()
         await advertise_page(update, ctx)
     elif data == "add_product":
         await query.answer()
