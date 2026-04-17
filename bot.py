@@ -1749,10 +1749,44 @@ async def handle_admin_commands(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         )
         await update.message.reply_text(text_out, parse_mode="Markdown")
 
+async def about_command(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    uid = update.effective_user.id
+    if uid in last_bot_message:
+        try:
+            await ctx.bot.delete_message(chat_id=uid, message_id=last_bot_message[uid])
+        except Exception:
+            pass
+    text = (
+        "ℹ️ *О боте SmartSalesAI*\n\n"
+        "🎮 *Что это такое?*\n"
+        "SmartSalesAI — цифровой маркетплейс игровых товаров с ИИ-продавцом. "
+        "Покупай и продавай аккаунты, валюту и предметы для Brawl Stars, PUBG, Roblox, CS2 и других игр.\n\n"
+        "🤖 *Как работает ИИ-продавец?*\n"
+        "Если продавец не отвечает — ИИ автоматически консультирует покупателя, "
+        "рассказывает о товаре и помогает закрыть сделку. Работает 24/7.\n\n"
+        "💰 *Монетизация для продавцов:*\n"
+        "• ИИ-помощник — 500₽/мес\n"
+        "• Баннер в каталоге — от 500₽\n"
+        "• Саб-баннер в категории — от 150₽\n"
+        "• Топ в категории — 200₽/нед\n"
+        "• Бейдж Проверен — 300₽/мес\n\n"
+        "📊 *Статистика:*\n"
+        f"👥 Пользователей: {len(all_users)}\n"
+        f"🛍 Товаров: {len(products)}\n"
+        f"🏪 Продавцов: {len(sellers)}\n\n"
+        "📩 *Контакт:* @evnnnu"
+    )
+    kb = InlineKeyboardMarkup([
+        [InlineKeyboardButton("🚀 Начать", callback_data="back_main")]
+    ])
+    sent = await update.effective_message.reply_text(text, parse_mode="Markdown", reply_markup=kb)
+    last_bot_message[uid] = sent.message_id
+
 def main():
     app = Application.builder().token(TELEGRAM_TOKEN).build()
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("help", help_command))
+    app.add_handler(CommandHandler("about", about_command))
     app.add_handler(CommandHandler("catalog", show_catalog_cmd))
     app.add_handler(MessageHandler(filters.COMMAND & (
         filters.Regex(r'^/activate_') |
