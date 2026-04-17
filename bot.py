@@ -47,51 +47,63 @@ last_bot_message = {}  # uid -> message_id
 last_msg_is_photo = {}  # uid -> bool (True если последнее сообщение — фото)
 
 async def safe_edit_text(query, uid, text, keyboard, parse_mode="Markdown"):
-    """Редактирует сообщение — если оно фото, сначала меняет на текст"""
-    if last_msg_is_photo.get(uid):
+    """Всегда редактирует на текст. Если было фото — удаляет и шлёт новое текстовое."""
+    if last_msg_is_photo.get(uid, False):
+        # Было фото — удаляем, шлём новое текстовое
         try:
-            from telegram import InputMediaPhoto
-            # Нельзя фото -> текст через edit_message_media, удаляем и шлём новое
             await query.message.delete()
         except Exception:
             pass
         try:
-            sent = await query.message.reply_text(text, parse_mode=parse_mode, reply_markup=keyboard)
+            sent = await query.message.chat.send_message(text, parse_mode=parse_mode, reply_markup=keyboard)
             last_bot_message[uid] = sent.message_id
             last_msg_is_photo[uid] = False
-            return
         except Exception:
             pass
-    try:
-        await query.edit_message_text(text, parse_mode=parse_mode, reply_markup=keyboard)
-        last_msg_is_photo[uid] = False
-    except Exception:
-        pass
+    else:
+        # Было текстовое — просто редактируем
+        try:
+            await query.edit_message_text(text, parse_mode=parse_mode, reply_markup=keyboard)
+            last_msg_is_photo[uid] = False
+        except Exception:
+            # Если не вышло — удаляем и шлём новое
+            try:
+                await query.message.delete()
+            except Exception:
+                pass
+            try:
+                sent = await query.message.chat.send_message(text, parse_mode=parse_mode, reply_markup=keyboard)
+                last_bot_message[uid] = sent.message_id
+                last_msg_is_photo[uid] = False
+            except Exception:
+                pass
 
 async def safe_edit_photo(query, uid, photo_id, caption, keyboard):
-    """Редактирует сообщение заменяя на фото"""
-    from telegram import InputMediaPhoto
-    if last_msg_is_photo.get(uid):
-        try:
-            await query.edit_message_media(
-                media=InputMediaPhoto(media=photo_id, caption=caption),
-                reply_markup=keyboard
-            )
-            last_msg_is_photo[uid] = True
-            return
-        except Exception:
-            pass
-    # Текстовое -> фото: удаляем и шлём новое
+    """Всегда показывает фото. Удаляет старое сообщение и шлёт новое фото с кнопками."""
+    # Всегда удаляем старое и шлём новое — это единственный надёжный способ
     try:
         await query.message.delete()
     except Exception:
         pass
     try:
-        sent = await query.message.reply_photo(photo=photo_id, caption=caption, reply_markup=keyboard)
+        sent = await query.message.chat.send_photo(
+            photo=photo_id,
+            caption=caption,
+            reply_markup=keyboard
+        )
         last_bot_message[uid] = sent.message_id
         last_msg_is_photo[uid] = True
     except Exception:
-        pass
+        # Фото не вышло — шлём текст
+        try:
+            sent = await query.message.chat.send_message(
+                caption or "📂 Выберите категорию:",
+                reply_markup=keyboard
+            )
+            last_bot_message[uid] = sent.message_id
+            last_msg_is_photo[uid] = False
+        except Exception:
+            pass
 verified_sellers = set()
 all_users = set()
 PAGE_SIZE = 8
