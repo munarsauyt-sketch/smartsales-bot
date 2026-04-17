@@ -83,6 +83,52 @@ state_store = {
 last_bot_message = {}  # uid -> message_id
 last_msg_is_photo = {}  # uid -> bool (True если последнее сообщение — фото)
 
+# Плавный фейковый онлайн — не скачет резко
+_fake_online = {"value": 72, "viewers": 18}
+
+def get_fake_online():
+    """Плавно меняет онлайн в зависимости от времени суток. Шаг ±1-3."""
+    from datetime import datetime, timezone, timedelta
+    # Алматы UTC+5
+    now = datetime.now(timezone(timedelta(hours=5)))
+    hour = now.hour
+
+    # Целевой онлайн по времени суток
+    if 0 <= hour < 6:      # ночь
+        target = random.randint(15, 30)
+    elif 6 <= hour < 10:   # утро
+        target = random.randint(35, 55)
+    elif 10 <= hour < 14:  # день
+        target = random.randint(55, 75)
+    elif 14 <= hour < 18:  # после обеда
+        target = random.randint(65, 90)
+    elif 18 <= hour < 22:  # вечер (пик)
+        target = random.randint(80, 120)
+    else:                   # поздний вечер
+        target = random.randint(45, 70)
+
+    current = _fake_online["value"]
+    # Двигаемся к цели шагом 1-3, не скачем
+    if current < target:
+        step = random.randint(1, 3)
+        current = min(current + step, target)
+    elif current > target:
+        step = random.randint(1, 3)
+        current = max(current - step, target)
+
+    _fake_online["value"] = current
+
+    # Просматривающих — примерно 20-30% от онлайна, тоже плавно
+    viewers_target = max(5, current // 4 + random.randint(-2, 2))
+    v = _fake_online["viewers"]
+    if v < viewers_target:
+        v = min(v + random.randint(1, 2), viewers_target)
+    elif v > viewers_target:
+        v = max(v - random.randint(1, 2), viewers_target)
+    _fake_online["viewers"] = v
+
+    return current, v
+
 async def safe_edit_text(query, uid, text, keyboard, parse_mode="Markdown"):
     """Показывает текстовое сообщение с кнопками. Всегда редактирует на месте."""
     last_msg_is_photo[uid] = False
@@ -264,8 +310,7 @@ async def start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         kb.insert(2, [InlineKeyboardButton("🏪 Мой магазин", callback_data="my_shop")])
     else:
         kb.append([InlineKeyboardButton("📦 Стать продавцом", callback_data="become_seller")])
-    online = random.randint(70, 80)
-    viewers = random.randint(12, 28)
+    online, viewers = get_fake_online()
     text = (
         f"🎮 *SmartSalesAI* — цифровой магазин\n\n"
         f"🟢 Сейчас онлайн: *{online} человек*\n"
@@ -407,7 +452,7 @@ async def show_top_sellers(update, ctx):
     await query.answer()
     sorted_sellers = sorted([(uid, s) for uid, s in sellers.items()],
                             key=lambda x: top_sellers.get(x[0], 0), reverse=True)[:10]
-    total_online = random.randint(70, 80)
+    total_online, _ = get_fake_online()
     text = f"🏆 *Топ продавцов SmartSalesAI*\n🟢 Онлайн: {total_online} покупателей\n\n"
     medals = ["🥇","🥈","🥉","4️⃣","5️⃣","6️⃣","7️⃣","8️⃣","9️⃣","🔟"]
     for i, (uid, s) in enumerate(sorted_sellers):
@@ -481,7 +526,8 @@ async def show_category(update, ctx, category, page=0):
         kb.append(nav)
     kb.append([InlineKeyboardButton("🔙 К категориям", callback_data="catalog")])
     showing = f"{start_i+1}–{min(end_i,total)} из {total}"
-    cat_online = random.randint(8, 25)
+    base_online, _ = get_fake_online()
+    cat_online = max(3, base_online // 6 + random.randint(-1, 1))
 
     # Саб-баннер — фото поверх сообщения с кнопками
     cat_banner = state_store.get("cat_banners", {}).get(category)
@@ -530,7 +576,7 @@ async def show_product(update, ctx, pid, photo_idx=0):
         f"👤 Продавец: {p['seller_name']}{ver_badge} ⭐{seller_rating}"
         f"{rev_text}{ai_badge}\n"
         f"👁 Просмотров: {views_count.get(pid, 0)}\n"
-        f"🔥 Смотрят сейчас: *{random.randint(2, 7)} чел.*"
+        f"🔥 Смотрят сейчас: *{max(1, _fake_online['value'] // 20 + random.randint(0, 2))} чел.*"
     )
     kb = [
         [InlineKeyboardButton("💬 Написать продавцу", callback_data=f"chat_seller_{pid}")],
@@ -1233,8 +1279,7 @@ async def button_handler(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             kb2.insert(2, [InlineKeyboardButton("🏪 Мой магазин", callback_data="my_shop")])
         else:
             kb2.append([InlineKeyboardButton("📦 Стать продавцом", callback_data="become_seller")])
-        online2 = random.randint(70, 80)
-        viewers2 = random.randint(12, 28)
+        online2, viewers2 = get_fake_online()
         text2 = (
             f"🎮 *SmartSalesAI* — цифровой магазин\n\n"
             f"🟢 Сейчас онлайн: *{online2} человек*\n"
