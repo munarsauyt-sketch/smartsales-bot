@@ -47,57 +47,48 @@ last_bot_message = {}  # uid -> message_id
 last_msg_is_photo = {}  # uid -> bool (True если последнее сообщение — фото)
 
 async def safe_edit_text(query, uid, text, keyboard, parse_mode="Markdown"):
-    """Всегда редактирует на текст. Если было фото — удаляет и шлёт новое текстовое."""
-    if last_msg_is_photo.get(uid, False):
-        # Было фото — удаляем, шлём новое текстовое
+    """Показывает текстовое сообщение с кнопками. Всегда редактирует на месте."""
+    last_msg_is_photo[uid] = False
+    try:
+        await query.edit_message_text(text, parse_mode=parse_mode, reply_markup=keyboard)
+    except Exception:
         try:
             await query.message.delete()
         except Exception:
             pass
         try:
-            sent = await query.message.chat.send_message(text, parse_mode=parse_mode, reply_markup=keyboard)
+            sent = await query.message.chat.send_message(
+                text, parse_mode=parse_mode, reply_markup=keyboard)
             last_bot_message[uid] = sent.message_id
-            last_msg_is_photo[uid] = False
         except Exception:
             pass
-    else:
-        # Было текстовое — просто редактируем
-        try:
-            await query.edit_message_text(text, parse_mode=parse_mode, reply_markup=keyboard)
-            last_msg_is_photo[uid] = False
-        except Exception:
-            # Если не вышло — удаляем и шлём новое
-            try:
-                await query.message.delete()
-            except Exception:
-                pass
-            try:
-                sent = await query.message.chat.send_message(text, parse_mode=parse_mode, reply_markup=keyboard)
-                last_bot_message[uid] = sent.message_id
-                last_msg_is_photo[uid] = False
-            except Exception:
-                pass
 
 async def safe_edit_photo(query, uid, photo_id, caption, keyboard):
-    """Всегда показывает фото. Удаляет старое сообщение и шлёт новое фото с кнопками."""
-    # Всегда удаляем старое и шлём новое — это единственный надёжный способ
+    """Показывает фото с кнопками. Удаляет старое сообщение и шлёт новое."""
+    last_msg_is_photo[uid] = True
+    chat_id = query.message.chat_id
+    msg_id = query.message.message_id
+    bot = query.get_bot()
+    # Удаляем старое сообщение
     try:
-        await query.message.delete()
+        await bot.delete_message(chat_id=chat_id, message_id=msg_id)
     except Exception:
         pass
+    # Шлём новое фото с кнопками
     try:
-        sent = await query.message.chat.send_photo(
+        sent = await bot.send_photo(
+            chat_id=chat_id,
             photo=photo_id,
-            caption=caption,
+            caption=caption if caption else None,
             reply_markup=keyboard
         )
         last_bot_message[uid] = sent.message_id
-        last_msg_is_photo[uid] = True
     except Exception:
         # Фото не вышло — шлём текст
         try:
-            sent = await query.message.chat.send_message(
-                caption or "📂 Выберите категорию:",
+            sent = await bot.send_message(
+                chat_id=chat_id,
+                text=caption or "📂 Выберите:",
                 reply_markup=keyboard
             )
             last_bot_message[uid] = sent.message_id
