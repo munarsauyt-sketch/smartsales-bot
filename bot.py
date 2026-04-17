@@ -3,23 +3,21 @@ import asyncio
 import logging
 import re
 import random
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, InputMediaPhoto, ReplyKeyboardMarkup, KeyboardButton
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, KeyboardButton
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, MessageHandler, filters, ContextTypes
 from groq import Groq
-
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
-
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN", "")
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "")
 ADMIN_ID = int(os.environ.get("ADMIN_ID", "1048682172"))
 ADMIN_USERNAME = "evnnnu"
 YOOMONEY_WALLET = "4100118679419062"
 AI_PRICE = 500
-AD_BANNER_PRICE = 1500   # ₽/мес за рекламный баннер при /start
-AD_TOP_PRICE = 200       # ₽/нед за топ-место в категории
-VERIFIED_PRICE = 300     # ₽/мес за бейдж верификации
-
+AD_BANNER_PRICE = 500    # основной баннер при каталоге
+AD_CAT_BANNER_PRICE = 200  # саб-баннер для категории
+AD_TOP_PRICE = 200
+VERIFIED_PRICE = 300
 groq_client = Groq(api_key=GROQ_API_KEY)
 
 # --- ХРАНИЛИЩЕ ---
@@ -30,7 +28,6 @@ active_chats = {}
 pending_ai_tasks = {}
 user_states = {}
 user_temp = {}
-
 reviews = {}
 favorites = {}
 views_count = {}
@@ -38,18 +35,18 @@ promo_codes = {}
 top_sellers = {}
 ad_products = []
 guarantees = {}
-
-# РЕКЛАМА
-state_store = {"sponsor_banner": None}  # используем словарь чтобы избежать global
-verified_sellers = set()    # seller_id — верифицированные продавцы
-broadcast_queue = []        # [(seller_id, text, pid)] — очередь рассылок
-all_users = set()           # все пользователи бота (для рассылки)
-
+state_store = {
+    "sponsor_banner": None,       # баннер при /start (старый)
+    "catalog_banner": None,       # ОСНОВНОЙ баннер при открытии каталога (500₽)
+    # саб-баннеры для каждой категории (200₽)
+    "cat_banners": {}             # {"Brawl Stars": {"pid": .., "seller_id": .., "photo_id": ..}, ...}
+}
+verified_sellers = set()
+all_users = set()
 PAGE_SIZE = 8
 CATEGORIES = ["Brawl Stars", "PUBG Mobile", "Roblox", "Standoff 2", "Steam", "CS2"]
 CAT_EMOJI = {"Brawl Stars": "🎯", "PUBG Mobile": "🔫", "Roblox": "🧱",
              "Standoff 2": "🔪", "Steam": "🎮", "CS2": "🏆"}
-
 AI_TIMERS = {
     "30s": ("30 секунд", 30), "1m": ("1 минута", 60), "2m": ("2 минуты", 120),
     "3m": ("3 минуты", 180), "5m": ("5 минут", 300), "10m": ("10 минут", 600),
@@ -57,7 +54,6 @@ AI_TIMERS = {
     "2h": ("2 часа", 7200),
 }
 DEFAULT_AI_PROMPT = "Ты продавец цифровых товаров. Пиши коротко и по делу — только преимущества товара без воды. Не здоровайся длинно, сразу к сути. Отвечай на русском."
-
 
 def init_demo():
     sellers[ADMIN_ID] = {
@@ -68,7 +64,6 @@ def init_demo():
     }
     top_sellers[ADMIN_ID] = 47
     verified_sellers.add(ADMIN_ID)
-
     demo_products = [
         {"cat": "Brawl Stars", "title": "Аккаунт 45 бравлеров, Мортис макс", "desc": "45 бравлеров, Мортис 11, Эмбер 9, Байрон 10. Трофеи 32,000. Без привязки к номеру.", "price": 1800},
         {"cat": "Brawl Stars", "title": "Аккаунт 3 легендарки + Brawl Pass", "desc": "Леон, Сэнди, Корделиус. 28,500 трофеев. Активный Brawl Pass. Почта в комплекте.", "price": 2400},
@@ -147,9 +142,7 @@ def init_demo():
         reviews[pid] = []
     promo_codes["SMART10"] = {"seller_id": ADMIN_ID, "discount_pct": 10, "uses_left": 100}
     promo_codes["SALE20"] = {"seller_id": ADMIN_ID, "discount_pct": 20, "uses_left": 50}
-
 init_demo()
-
 
 def get_seller_rating(seller_id):
     total, count = 0, 0
@@ -159,37 +152,14 @@ def get_seller_rating(seller_id):
             count += 1
     return round(total / count, 1) if count else 5.0
 
-
 # ================================================================
-# /start — с рекламным баннером
+# /start
 # ================================================================
 async def start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     uid = update.effective_user.id
     user_states[uid] = None
     all_users.add(uid)
     is_seller = uid in sellers
-
-    # Показываем спонсорский баннер (если есть)
-    if state_store["sponsor_banner"]:
-        sp = state_store["sponsor_banner"]
-        p = products.get(sp.get("pid"), {})
-        s_name = sellers.get(sp.get("seller_id"), {}).get("name", "")
-        banner_text = (
-            f"📣 *Реклама* | {s_name}\n\n"
-            f"{sp.get('text', '')}"
-        )
-        if p:
-            banner_text += f"\n\n🛍 *{p.get('title','')}* — {p.get('price','')}₽"
-        try:
-            await update.effective_message.reply_text(
-                banner_text, parse_mode="Markdown",
-                reply_markup=InlineKeyboardMarkup([
-                    [InlineKeyboardButton("👀 Посмотреть товар", callback_data=f"product_{sp['pid']}_0")]
-                ])
-            )
-        except:
-            pass
-
     kb = [
         [InlineKeyboardButton("🛒 Каталог товаров", callback_data="catalog"),
          InlineKeyboardButton("🔍 Поиск", callback_data="search")],
@@ -202,7 +172,6 @@ async def start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         kb.insert(2, [InlineKeyboardButton("🏪 Мой магазин", callback_data="my_shop")])
     else:
         kb.append([InlineKeyboardButton("📦 Стать продавцом", callback_data="become_seller")])
-
     online = random.randint(70, 80)
     viewers = random.randint(12, 28)
     text = (
@@ -221,7 +190,6 @@ async def start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     await update.effective_message.reply_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(kb))
     await update.effective_message.reply_text("👇", reply_markup=bottom_kb)
 
-
 # ================================================================
 # ПОМОЩЬ / КАТАЛОГ
 # ================================================================
@@ -238,25 +206,23 @@ async def help_command(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         "• Купи ИИ-помощника за 500₽/мес\n"
         "• ИИ продаёт за тебя пока ты спишь 😴\n\n"
         "📣 *Реклама для продавцов:*\n"
-        "• Баннер при /start — 1500₽/мес\n"
+        "• Основной баннер в каталоге — 500₽/мес\n"
+        "• Саб-баннер в категории — 200₽/мес\n"
         "• Топ в категории — 200₽/нед\n"
         "• Рассылка всем — 300₽\n"
-        "• Бейдж ✅ Проверен — 300₽/мес\n\n"
+        "• Бейдж Проверен — 300₽/мес\n\n"
         f"По вопросам рекламы: @{ADMIN_USERNAME}"
     )
     await update.effective_message.reply_text(
         text, parse_mode="Markdown",
         reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🚀 Начать", callback_data="back_main")]]))
 
-
 async def show_catalog_cmd(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     kb = [[InlineKeyboardButton(f"{CAT_EMOJI.get(c,'📦')} {c}", callback_data=f"cat_{c}")] for c in CATEGORIES]
     kb.append([InlineKeyboardButton("◀️ Назад", callback_data="back_main")])
     await update.effective_message.reply_text(
         "📂 *Выберите категорию:*", parse_mode="Markdown",
-        reply_markup=InlineKeyboardMarkup(kb)
-    )
-
+        reply_markup=InlineKeyboardMarkup(kb))
 
 # ================================================================
 # ПОИСК / ИЗБРАННОЕ / ТОП
@@ -271,15 +237,12 @@ async def search_start(update, ctx):
         parse_mode="Markdown",
         reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("◀️ Назад", callback_data="back_main")]]))
 
-
 async def do_search(uid, query_text, update, ctx):
     q = query_text.lower()
     found = [(pid, p) for pid, p in products.items()
              if q in p["title"].lower() or q in p["description"].lower() or q in p["category"].lower()]
     if not found:
-        await update.message.reply_text(
-            f"😔 По запросу *{query_text}* ничего не найдено.",
-            parse_mode="Markdown")
+        await update.message.reply_text(f"😔 По запросу *{query_text}* ничего не найдено.", parse_mode="Markdown")
         return
     kb = []
     for pid, p in found[:15]:
@@ -287,9 +250,7 @@ async def do_search(uid, query_text, update, ctx):
     kb.append([InlineKeyboardButton("🔍 Новый поиск", callback_data="search"),
                InlineKeyboardButton("◀️ Меню", callback_data="back_main")])
     await update.message.reply_text(
-        f"🔍 По запросу *{query_text}* найдено {len(found)}:",
-        parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(kb))
-
+        f"🔍 Найдено {len(found)}:", parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(kb))
 
 async def show_favorites(update, ctx):
     query = update.callback_query
@@ -298,8 +259,7 @@ async def show_favorites(update, ctx):
     fav = favorites.get(uid, set())
     if not fav:
         await query.edit_message_text(
-            "❤️ *Избранное пусто*",
-            parse_mode="Markdown",
+            "❤️ *Избранное пусто*", parse_mode="Markdown",
             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🛒 Каталог", callback_data="catalog"),
                                                 InlineKeyboardButton("◀️ Назад", callback_data="back_main")]]))
         return
@@ -312,7 +272,6 @@ async def show_favorites(update, ctx):
     await query.edit_message_text(f"❤️ *Избранное* — {len(fav)} товаров:", parse_mode="Markdown",
                                    reply_markup=InlineKeyboardMarkup(kb))
 
-
 async def show_top_sellers(update, ctx):
     query = update.callback_query
     await query.answer()
@@ -320,7 +279,7 @@ async def show_top_sellers(update, ctx):
                             key=lambda x: top_sellers.get(x[0], 0), reverse=True)[:10]
     total_online = random.randint(70, 80)
     text = f"🏆 *Топ продавцов SmartSalesAI*\n🟢 Онлайн: {total_online} покупателей\n\n"
-    medals = ["🥇", "🥈", "🥉"] + ["4️⃣","5️⃣","6️⃣","7️⃣","8️⃣","9️⃣","🔟"]
+    medals = ["🥇","🥈","🥉","4️⃣","5️⃣","6️⃣","7️⃣","8️⃣","9️⃣","🔟"]
     for i, (uid, s) in enumerate(sorted_sellers):
         rating = get_seller_rating(uid)
         sales = top_sellers.get(uid, 0)
@@ -330,22 +289,86 @@ async def show_top_sellers(update, ctx):
     await query.edit_message_text(text, parse_mode="Markdown",
         reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("◀️ Назад", callback_data="back_main")]]))
 
-
 # ================================================================
-# КАТАЛОГ / ТОВАР
+# КАТАЛОГ — с основным баннером
 # ================================================================
 async def show_catalog(update, ctx):
     query = update.callback_query
     await query.answer()
+
+    # Показываем основной баннер (если есть)
+    banner = state_store.get("catalog_banner")
+    if banner:
+        p = products.get(banner.get("pid"), {})
+        s_name = sellers.get(banner.get("seller_id"), {}).get("name", "")
+        banner_text = (
+            f"📣 *Реклама* | {s_name}\n"
+            f"🛍 *{p.get('title','')}* — {p.get('price','')}₽\n"
+            f"{p.get('description','')[:80]}..."
+        )
+        photo_id = banner.get("photo_id")
+        try:
+            if photo_id:
+                await query.message.reply_photo(
+                    photo=photo_id,
+                    caption=banner_text,
+                    parse_mode="Markdown",
+                    reply_markup=InlineKeyboardMarkup([
+                        [InlineKeyboardButton("👀 Посмотреть товар", callback_data=f"product_{banner['pid']}_0")]
+                    ])
+                )
+            else:
+                await query.message.reply_text(
+                    banner_text, parse_mode="Markdown",
+                    reply_markup=InlineKeyboardMarkup([
+                        [InlineKeyboardButton("👀 Посмотреть товар", callback_data=f"product_{banner['pid']}_0")]
+                    ])
+                )
+        except Exception:
+            pass
+
     kb = [[InlineKeyboardButton(f"{CAT_EMOJI.get(c,'📦')} {c}", callback_data=f"cat_{c}")] for c in CATEGORIES]
     kb.append([InlineKeyboardButton("◀️ Назад", callback_data="back_main")])
     await query.edit_message_text("📂 *Выберите категорию:*", parse_mode="Markdown",
                                    reply_markup=InlineKeyboardMarkup(kb))
 
-
+# ================================================================
+# КАТЕГОРИЯ — с саб-баннером
+# ================================================================
 async def show_category(update, ctx, category, page=0):
     query = update.callback_query
     await query.answer()
+
+    # Показываем саб-баннер для этой категории (если есть)
+    cat_banner = state_store.get("cat_banners", {}).get(category)
+    if cat_banner and page == 0:
+        p = products.get(cat_banner.get("pid"), {})
+        s_name = sellers.get(cat_banner.get("seller_id"), {}).get("name", "")
+        banner_text = (
+            f"📣 *Реклама в {category}* | {s_name}\n"
+            f"🛍 *{p.get('title','')}* — {p.get('price','')}₽"
+        )
+        photo_id = cat_banner.get("photo_id")
+        try:
+            if photo_id:
+                await query.message.reply_photo(
+                    photo=photo_id,
+                    caption=banner_text,
+                    parse_mode="Markdown",
+                    reply_markup=InlineKeyboardMarkup([
+                        [InlineKeyboardButton("👀 Посмотреть", callback_data=f"product_{cat_banner['pid']}_0")]
+                    ])
+                )
+            else:
+                await query.message.reply_text(
+                    banner_text, parse_mode="Markdown",
+                    reply_markup=InlineKeyboardMarkup([
+                        [InlineKeyboardButton("👀 Посмотреть", callback_data=f"product_{cat_banner['pid']}_0")]
+                    ])
+                )
+        except Exception:
+            pass
+
     ad_items = [(pid, products[pid]) for pid in ad_products
                 if products.get(pid, {}).get("category") == category]
     reg_items = [(pid, p) for pid, p in products.items()
@@ -368,7 +391,6 @@ async def show_category(update, ctx, category, page=0):
         if rev_list:
             avg = sum(r["rating"] for r in rev_list) / len(rev_list)
             label += f" ⭐{avg:.1f}"
-        # Бейдж верификации продавца
         if p.get("seller_id") in verified_sellers:
             label += " ✅"
         kb.append([InlineKeyboardButton(label, callback_data=f"product_{pid}_0")])
@@ -387,7 +409,6 @@ async def show_category(update, ctx, category, page=0):
         f"{CAT_EMOJI.get(category,'📦')} *{category}* — {total} товаров\n_{showing}_ · 🟢 {cat_online} онлайн",
         parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(kb))
 
-
 async def show_product(update, ctx, pid, photo_idx=0):
     query = update.callback_query
     await query.answer()
@@ -401,7 +422,7 @@ async def show_product(update, ctx, pid, photo_idx=0):
             await ctx.bot.send_message(p["seller_id"],
                 f"👁 Ваш товар *{p['title']}* просмотрели {views_count[pid]} раз!",
                 parse_mode="Markdown")
-        except:
+        except Exception:
             pass
     seller = sellers.get(p["seller_id"], {})
     uid = update.effective_user.id
@@ -435,7 +456,6 @@ async def show_product(update, ctx, pid, photo_idx=0):
     ]
     await query.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(kb))
 
-
 # ================================================================
 # ОТЗЫВЫ / ПРОМОКОД / ГАРАНТИЯ
 # ================================================================
@@ -455,7 +475,6 @@ async def show_reviews(update, ctx, pid):
           [InlineKeyboardButton("◀️ Назад", callback_data=f"product_{pid}_0")]]
     await query.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(kb))
 
-
 async def promo_start(update, ctx, pid):
     query = update.callback_query
     await query.answer()
@@ -464,7 +483,6 @@ async def promo_start(update, ctx, pid):
     await query.edit_message_text(
         "🎟 *Введите промокод:*", parse_mode="Markdown",
         reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("◀️ Назад", callback_data=f"product_{pid}_0")]]))
-
 
 async def guarantee_start(update, ctx, pid):
     query = update.callback_query
@@ -477,7 +495,6 @@ async def guarantee_start(update, ctx, pid):
         f"🤝 *Гарантия сделки*\n\nТовар: _{p.get('title','')}_\nЦена: *{p.get('price',0)}₽*\n\n"
         "После получения нажмите «Подтвердить».\nЕсли проблема — «Открыть спор».",
         parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(kb))
-
 
 # ================================================================
 # ЧАТ / ИИ
@@ -505,14 +522,13 @@ async def start_chat(update, ctx, pid):
         await ctx.bot.send_message(seller_id,
             f"📩 *Новый покупатель!*\n👤 {buyer_name}\n🛍 *{p['title']}* — {p['price']}₽",
             parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(kb))
-    except:
+    except Exception:
         pass
     if uid in pending_ai_tasks:
         pending_ai_tasks[uid].cancel()
     asyncio.create_task(ai_instant_intro(ctx, uid, pid, buyer_name))
     task = asyncio.create_task(ai_reply_after_delay(ctx, uid, pid, buyer_name))
     pending_ai_tasks[uid] = task
-
 
 async def ai_instant_intro(ctx, buyer_id, pid, buyer_name):
     await asyncio.sleep(60)
@@ -524,7 +540,7 @@ async def ai_instant_intro(ctx, buyer_id, pid, buyer_name):
     prompt = seller.get("ai_prompt", "") or DEFAULT_AI_PROMPT
     seller_prods = [products[pid2] for pid2 in seller.get("products", []) if pid2 in products]
     other_prods = [p2["title"] for p2 in seller_prods if p2["title"] != p.get("title","")][:3]
-    other_text = f"\nДругие товары продавца: {', '.join(other_prods)}" if other_prods else ""
+    other_text = f"\nДругие товары: {', '.join(other_prods)}" if other_prods else ""
     try:
         resp = groq_client.chat.completions.create(
             model="llama-3.1-8b-instant",
@@ -536,7 +552,6 @@ async def ai_instant_intro(ctx, buyer_id, pid, buyer_name):
         await ctx.bot.send_message(buyer_id, f"🤖 *{seller.get('name','Продавец')}:*\n\n{intro_text}", parse_mode="Markdown")
     except Exception as e:
         logger.error(f"AI intro error: {e}")
-
 
 async def ai_reply_after_delay(ctx, buyer_id, pid, buyer_name):
     chat_info = active_chats.get(buyer_id, {})
@@ -568,7 +583,6 @@ async def ai_reply_after_delay(ctx, buyer_id, pid, buyer_name):
         await ctx.bot.send_message(buyer_id, f"🤖 *ИИ-продавец:*\n\n{ai_text}", parse_mode="Markdown")
     except Exception as e:
         logger.error(f"AI error: {e}")
-
 
 # ================================================================
 # МОЙ МАГАЗИН
@@ -605,38 +619,42 @@ async def my_shop(update, ctx):
         f"🤖 ИИ: {ai_status}",
         parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(kb))
 
-
 # ================================================================
-# РЕКЛАМНОЕ МЕНЮ (для продавцов)
+# РЕКЛАМНОЕ МЕНЮ — с баннерами
 # ================================================================
 async def ad_menu(update, ctx):
     query = update.callback_query
     await query.answer()
     uid = update.effective_user.id
     ver_status = "✅ Активен" if uid in verified_sellers else "❌ Нет"
-    has_banner = state_store["sponsor_banner"] and state_store["sponsor_banner"].get("seller_id") == uid
-    banner_status = "✅ Активен" if has_banner else "❌ Нет"
-
+    has_cat_banner = any(v.get("seller_id") == uid for v in state_store["cat_banners"].values())
+    has_main_banner = state_store["catalog_banner"] and state_store["catalog_banner"].get("seller_id") == uid
     kb = [
-        [InlineKeyboardButton("🖼 Баннер при /start", callback_data="ad_banner")],
+        [InlineKeyboardButton("🖼 Основной баннер в каталоге", callback_data="ad_main_banner")],
+        [InlineKeyboardButton("🎯 Саб-баннер в категории", callback_data="ad_cat_banner")],
         [InlineKeyboardButton("📣 Топ в категории", callback_data="advertise")],
         [InlineKeyboardButton("📢 Рассылка пользователям", callback_data="ad_broadcast")],
         [InlineKeyboardButton("✅ Бейдж «Проверен»", callback_data="ad_verified")],
         [InlineKeyboardButton("◀️ Назад", callback_data="my_shop")],
     ]
+    main_status = "✅ Активен" if has_main_banner else "❌ Нет"
+    cat_status = "✅ Активен" if has_cat_banner else "❌ Нет"
     text = (
         "📣 *Реклама в SmartSalesAI*\n\n"
-        f"🖼 Баннер при /start: {banner_status} — *{AD_BANNER_PRICE}₽/мес*\n"
+        f"🖼 Основной баннер в каталоге: {main_status} — *{AD_BANNER_PRICE}₽/мес*\n"
+        f"🎯 Саб-баннер в категории: {cat_status} — *{AD_CAT_BANNER_PRICE}₽/мес*\n"
         f"📣 Топ в категории — *{AD_TOP_PRICE}₽/нед*\n"
         f"📢 Рассылка всем — *{VERIFIED_PRICE}₽*\n"
         f"✅ Бейдж «Проверен»: {ver_status} — *{VERIFIED_PRICE}₽/мес*\n\n"
-        "Оплата: ЮMoney `4100118679419062`\n"
-        f"После оплаты пишите @{ADMIN_USERNAME}"
+        f"Оплата: ЮMoney `{YOOMONEY_WALLET}`\n"
+        f"После оплаты: @{ADMIN_USERNAME}"
     )
     await query.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(kb))
 
-
-async def ad_banner_page(update, ctx):
+# ----------------------------------------------------------------
+# ОСНОВНОЙ БАННЕР в каталоге (500₽)
+# ----------------------------------------------------------------
+async def ad_main_banner_page(update, ctx):
     query = update.callback_query
     await query.answer()
     uid = update.effective_user.id
@@ -647,28 +665,28 @@ async def ad_banner_page(update, ctx):
             "❌ Сначала добавьте товар.",
             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("◀️ Назад", callback_data="ad_menu")]]))
         return
-    has_banner = state_store["sponsor_banner"] and state_store["sponsor_banner"].get("seller_id") == uid
-    yoo_link = f"https://yoomoney.ru/transfer/quickpay?receiver={YOOMONEY_WALLET}&sum={AD_BANNER_PRICE}&label=banner_{uid}&targets=Баннер+SmartSalesAI"
+    has_banner = state_store["catalog_banner"] and state_store["catalog_banner"].get("seller_id") == uid
+    yoo_link = f"https://yoomoney.ru/transfer/quickpay?receiver={YOOMONEY_WALLET}&sum={AD_BANNER_PRICE}&label=mainbanner_{uid}&targets=Основной+баннер+SmartSalesAI"
     kb = []
     if has_banner:
-        kb.append([InlineKeyboardButton("❌ Снять баннер", callback_data="remove_banner")])
+        kb.append([InlineKeyboardButton("❌ Снять баннер", callback_data="remove_main_banner")])
     else:
         kb.append([InlineKeyboardButton(f"💳 Оплатить {AD_BANNER_PRICE}₽", url=yoo_link)])
-        kb.append([InlineKeyboardButton("✅ Я оплатил — выбрать товар", callback_data="banner_select_product")])
+        kb.append([InlineKeyboardButton("✅ Я оплатил — выбрать товар", callback_data="main_banner_select")])
     kb.append([InlineKeyboardButton("◀️ Назад", callback_data="ad_menu")])
     text = (
-        "🖼 *Рекламный баннер при /start*\n\n"
+        "🖼 *Основной баннер в каталоге*\n\n"
         f"Стоимость: *{AD_BANNER_PRICE}₽/мес*\n\n"
-        "Ваш товар показывается первым каждому кто открывает бота.\n"
+        "Показывается каждому кто открывает каталог товаров.\n"
         f"Охват: все {len(all_users)} пользователей бота.\n\n"
-        "После оплаты нажмите «Я оплатил» и выберите товар для рекламы."
+        "Можно добавить фото баннера!\n"
+        "После оплаты нажмите «Я оплатил» → выберите товар → отправьте фото (или пропустите)."
     )
     if has_banner:
-        text += f"\n\n✅ *Баннер активен!*"
+        text += "\n\n✅ *Баннер активен!*"
     await query.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(kb))
 
-
-async def banner_select_product(update, ctx):
+async def main_banner_select_product(update, ctx):
     query = update.callback_query
     await query.answer()
     uid = update.effective_user.id
@@ -677,13 +695,78 @@ async def banner_select_product(update, ctx):
     kb = []
     for pid in my_prods:
         p = products[pid]
-        kb.append([InlineKeyboardButton(f"{p['title'][:35]}", callback_data=f"set_banner_{pid}")])
-    kb.append([InlineKeyboardButton("◀️ Назад", callback_data="ad_banner")])
+        kb.append([InlineKeyboardButton(f"{p['title'][:35]}", callback_data=f"set_main_banner_{pid}")])
+    kb.append([InlineKeyboardButton("◀️ Назад", callback_data="ad_main_banner")])
+    await query.edit_message_text("🖼 Выберите товар для основного баннера:",
+                                   reply_markup=InlineKeyboardMarkup(kb))
+
+# ----------------------------------------------------------------
+# САБ-БАННЕР в категории (200₽)
+# ----------------------------------------------------------------
+async def ad_cat_banner_page(update, ctx):
+    query = update.callback_query
+    await query.answer()
+    uid = update.effective_user.id
+    s = sellers.get(uid, {})
+    my_prods = [p for p in s.get("products", []) if p in products]
+    if not my_prods:
+        await query.edit_message_text(
+            "❌ Сначала добавьте товар.",
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("◀️ Назад", callback_data="ad_menu")]]))
+        return
+    # Показываем активные саб-баннеры этого продавца
+    my_cat_banners = [cat for cat, b in state_store["cat_banners"].items() if b.get("seller_id") == uid]
+    yoo_link = f"https://yoomoney.ru/transfer/quickpay?receiver={YOOMONEY_WALLET}&sum={AD_CAT_BANNER_PRICE}&label=catbanner_{uid}&targets=Саб-баннер+SmartSalesAI"
+    kb = [
+        [InlineKeyboardButton(f"💳 Оплатить {AD_CAT_BANNER_PRICE}₽", url=yoo_link)],
+        [InlineKeyboardButton("✅ Я оплатил — выбрать категорию", callback_data="cat_banner_select_cat")],
+    ]
+    if my_cat_banners:
+        for cat in my_cat_banners:
+            kb.append([InlineKeyboardButton(f"❌ Снять баннер в {cat}", callback_data=f"remove_cat_banner_{cat}")])
+    kb.append([InlineKeyboardButton("◀️ Назад", callback_data="ad_menu")])
+    text = (
+        "🎯 *Саб-баннер в категории*\n\n"
+        f"Стоимость: *{AD_CAT_BANNER_PRICE}₽/мес* за одну категорию\n\n"
+        "Показывается сверху при открытии выбранной категории.\n"
+        "Можно добавить фото!\n\n"
+    )
+    if my_cat_banners:
+        text += f"✅ Активные баннеры: {', '.join(my_cat_banners)}\n"
+    else:
+        text += "❌ Активных саб-баннеров нет.\n"
+    await query.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(kb))
+
+async def cat_banner_select_category(update, ctx):
+    query = update.callback_query
+    await query.answer()
+    kb = [[InlineKeyboardButton(f"{CAT_EMOJI.get(c,'📦')} {c}", callback_data=f"cat_banner_pick_cat_{c}")]
+          for c in CATEGORIES]
+    kb.append([InlineKeyboardButton("◀️ Назад", callback_data="ad_cat_banner")])
+    await query.edit_message_text("🎯 Выберите категорию для саб-баннера:",
+                                   reply_markup=InlineKeyboardMarkup(kb))
+
+async def cat_banner_pick_product(update, ctx, category):
+    query = update.callback_query
+    await query.answer()
+    uid = update.effective_user.id
+    s = sellers.get(uid, {})
+    my_prods = [p for p in s.get("products", []) if p in products and products[p]["category"] == category]
+    if not my_prods:
+        # Если нет товаров в этой категории — показываем все товары
+        my_prods = [p for p in s.get("products", []) if p in products]
+    kb = []
+    for pid in my_prods:
+        p = products[pid]
+        kb.append([InlineKeyboardButton(f"{p['title'][:35]}", callback_data=f"set_cat_banner_{category}_{pid}")])
+    kb.append([InlineKeyboardButton("◀️ Назад", callback_data="cat_banner_select_cat")])
     await query.edit_message_text(
-        "🖼 Выберите товар для рекламного баннера:",
-        reply_markup=InlineKeyboardMarkup(kb))
+        f"🎯 Выберите товар для саб-баннера в *{category}*:",
+        parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(kb))
 
-
+# ----------------------------------------------------------------
+# ОСТАЛЬНЫЕ РЕКЛАМНЫЕ СТРАНИЦЫ
+# ----------------------------------------------------------------
 async def ad_broadcast_page(update, ctx):
     query = update.callback_query
     await query.answer()
@@ -704,10 +787,8 @@ async def ad_broadcast_page(update, ctx):
     await query.edit_message_text(
         f"📢 *Рассылка всем пользователям*\n\n"
         f"Стоимость: *{VERIFIED_PRICE}₽* за одну рассылку\n\n"
-        f"Ваш товар отправят *{len(all_users)} пользователям* бота.\n"
-        "Рассылка происходит в течение 1 часа после оплаты.",
+        f"Ваш товар отправят *{len(all_users)} пользователям* бота.",
         parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(kb))
-
 
 async def broadcast_select_product(update, ctx):
     query = update.callback_query
@@ -720,10 +801,7 @@ async def broadcast_select_product(update, ctx):
         p = products[pid]
         kb.append([InlineKeyboardButton(f"{p['title'][:35]}", callback_data=f"req_broadcast_{pid}")])
     kb.append([InlineKeyboardButton("◀️ Назад", callback_data="ad_broadcast")])
-    await query.edit_message_text(
-        "📢 Выберите товар для рассылки:",
-        reply_markup=InlineKeyboardMarkup(kb))
-
+    await query.edit_message_text("📢 Выберите товар для рассылки:", reply_markup=InlineKeyboardMarkup(kb))
 
 async def ad_verified_page(update, ctx):
     query = update.callback_query
@@ -739,13 +817,10 @@ async def ad_verified_page(update, ctx):
         kb.append([InlineKeyboardButton("✅ Я оплатил", callback_data="req_verified")])
     kb.append([InlineKeyboardButton("◀️ Назад", callback_data="ad_menu")])
     await query.edit_message_text(
-        f"✅ *Бейдж «Проверен»*\n\n"
-        f"Стоимость: *{VERIFIED_PRICE}₽/мес*\n\n"
+        f"✅ *Бейдж «Проверен»*\n\nСтоимость: *{VERIFIED_PRICE}₽/мес*\n\n"
         "• Бейдж ✅ виден в каталоге и у товаров\n"
-        "• Покупатели больше доверяют\n"
         f"• Статус: {'✅ Активен' if is_ver else '❌ Не активен'}",
         parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(kb))
-
 
 async def advertise_page(update, ctx):
     query = update.callback_query
@@ -767,9 +842,8 @@ async def advertise_page(update, ctx):
     kb.append([InlineKeyboardButton(f"💳 Оплатить {AD_TOP_PRICE}₽/нед", url=yoo_link)])
     kb.append([InlineKeyboardButton("◀️ Назад", callback_data="ad_menu")])
     await query.edit_message_text(
-        f"📣 *Топ в категории* — *{AD_TOP_PRICE}₽/нед*\n\nТовары с 📣 первые в списке.\nВыберите товар:",
+        f"📣 *Топ в категории* — *{AD_TOP_PRICE}₽/нед*\n\nТовары с 📣 первые в списке:",
         parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(kb))
-
 
 # ================================================================
 # ИИ НАСТРОЙКИ
@@ -802,7 +876,6 @@ async def ai_settings(update, ctx):
         f"⏱ Отвечает через: *{timer_label}*\n\n📝 Промпт:\n_{s.get('ai_prompt','')[:200]}_",
         parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(kb))
 
-
 async def buy_ai_page(update, ctx):
     query = update.callback_query
     await query.answer()
@@ -827,7 +900,6 @@ async def buy_ai_page(update, ctx):
         f"💰 *{AI_PRICE}₽/мес* · 💳 ЮMoney: `{YOOMONEY_WALLET}`",
         parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(kb))
 
-
 # ================================================================
 # ПРОМОКОДЫ / СТАТИСТИКА
 # ================================================================
@@ -846,7 +918,6 @@ async def my_stats(update, ctx):
     kb = [[InlineKeyboardButton("◀️ Назад", callback_data="my_shop")]]
     await query.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(kb))
 
-
 async def my_promos(update, ctx):
     query = update.callback_query
     await query.answer()
@@ -862,7 +933,6 @@ async def my_promos(update, ctx):
             text += f"• `{code}` — {v['discount_pct']}%, осталось {v['uses_left']}\n"
     await query.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(kb))
 
-
 # ================================================================
 # ОБРАБОТКА СООБЩЕНИЙ
 # ================================================================
@@ -871,7 +941,6 @@ async def handle_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     text = update.message.text or ""
     state = user_states.get(uid, "")
     all_users.add(uid)
-
     if text == "📖 Как работает бот":
         await help_command(update, ctx)
         return
@@ -893,7 +962,7 @@ async def handle_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             await ctx.bot.send_message(seller_id,
                 f"💬 *{buyer_name}:*\n{text}\n_Товар: {p.get('title','')}_",
                 parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(kb))
-        except:
+        except Exception:
             pass
         await update.message.reply_text("✅ Отправлено!")
         return
@@ -909,7 +978,7 @@ async def handle_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             chat["ai_replied"] = True
         try:
             await ctx.bot.send_message(buyer_id, f"👤 *{seller_name}:*\n{text}", parse_mode="Markdown")
-        except:
+        except Exception:
             pass
         user_states[uid] = None
         await update.message.reply_text("✅ Ответ отправлен!")
@@ -990,10 +1059,11 @@ async def handle_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         return
     await update.message.reply_text("Используйте /start")
 
-
 async def handle_photo(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     uid = update.effective_user.id
-    if user_states.get(uid) == "add_photos":
+    state = user_states.get(uid, "")
+
+    if state == "add_photos":
         if uid not in user_temp:
             user_temp[uid] = {"photos": []}
         photos = user_temp[uid].setdefault("photos", [])
@@ -1004,7 +1074,38 @@ async def handle_photo(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(
             f"✅ Фото {len(photos)}/10 добавлено!",
             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("✅ Выбрать категорию", callback_data="photos_done")]]))
+        return
 
+    # Фото для основного баннера
+    if state == "uploading_main_banner_photo":
+        file_id = update.message.photo[-1].file_id
+        banner_data = user_temp.get(uid, {}).get("pending_banner", {})
+        if banner_data:
+            banner_data["photo_id"] = file_id
+            state_store["catalog_banner"] = banner_data
+            user_states[uid] = None
+            p = products.get(banner_data.get("pid"), {})
+            await update.message.reply_text(
+                f"✅ *Основной баннер активирован с фото!*\n\n🛍 {p.get('title','')} будет показываться в каталоге.",
+                parse_mode="Markdown",
+                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("◀️ Назад", callback_data="ad_menu")]]))
+        return
+
+    # Фото для саб-баннера
+    if state and state.startswith("uploading_cat_banner_photo_"):
+        category = state[len("uploading_cat_banner_photo_"):]
+        file_id = update.message.photo[-1].file_id
+        banner_data = user_temp.get(uid, {}).get("pending_cat_banner", {})
+        if banner_data:
+            banner_data["photo_id"] = file_id
+            state_store["cat_banners"][category] = banner_data
+            user_states[uid] = None
+            p = products.get(banner_data.get("pid"), {})
+            await update.message.reply_text(
+                f"✅ *Саб-баннер в {category} активирован с фото!*\n\n🛍 {p.get('title','')} будет показываться в категории.",
+                parse_mode="Markdown",
+                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("◀️ Назад", callback_data="ad_menu")]]))
+        return
 
 # ================================================================
 # CALLBACK HANDLER
@@ -1115,35 +1216,68 @@ async def button_handler(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         user_states[uid] = "create_promo_code"
         user_temp[uid] = {}
         await query.edit_message_text("🎟 *Создание промокода*\n\nВведите код (3-15 символов):", parse_mode="Markdown")
+
     # --- РЕКЛАМНОЕ МЕНЮ ---
     elif data == "ad_menu":
         await ad_menu(update, ctx)
-    elif data == "ad_banner":
-        await ad_banner_page(update, ctx)
-    elif data == "banner_select_product":
-        await banner_select_product(update, ctx)
-    elif data.startswith("set_banner_"):
+    elif data == "ad_main_banner":
+        await ad_main_banner_page(update, ctx)
+    elif data == "main_banner_select":
+        await main_banner_select_product(update, ctx)
+    elif data.startswith("set_main_banner_"):
         await query.answer()
-        pid = int(data[11:])
+        pid = int(data[16:])
         p = products.get(pid, {})
-        state_store["sponsor_banner"] = {"pid": pid, "seller_id": uid, "text": f"Топовый товар от {p.get('seller_name','')}!"}
-        # Уведомляем админа
-        try:
-            await ctx.bot.send_message(ADMIN_ID,
-                f"🖼 *Запрос на баннер!*\n👤 {uid}\n🛍 {p.get('title','')}\n\nАктивирован автоматически.",
-                parse_mode="Markdown")
-        except:
-            pass
+        # Сохраняем pending и просим фото
+        if uid not in user_temp:
+            user_temp[uid] = {}
+        user_temp[uid]["pending_banner"] = {"pid": pid, "seller_id": uid, "photo_id": None}
+        user_states[uid] = "uploading_main_banner_photo"
         await query.edit_message_text(
-            f"✅ *Баннер активирован!*\n\n🛍 {p.get('title','')} будет показываться при /start",
-            parse_mode="Markdown",
-            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("◀️ Назад", callback_data="ad_menu")]]))
-    elif data == "remove_banner":
+            f"🖼 Товар выбран: *{p.get('title','')}*\n\n"
+            "Отправьте фото для баннера (или напишите «пропустить» чтобы без фото):",
+            parse_mode="Markdown")
+    elif data == "remove_main_banner":
         await query.answer()
-        if state_store["sponsor_banner"] and state_store["sponsor_banner"].get("seller_id") == uid:
-            state_store["sponsor_banner"] = None
-        await query.answer("✅ Баннер снят")
-        await ad_banner_page(update, ctx)
+        if state_store["catalog_banner"] and state_store["catalog_banner"].get("seller_id") == uid:
+            state_store["catalog_banner"] = None
+            await query.answer("✅ Основной баннер снят")
+        await ad_main_banner_page(update, ctx)
+
+    # Саб-баннер
+    elif data == "ad_cat_banner":
+        await ad_cat_banner_page(update, ctx)
+    elif data == "cat_banner_select_cat":
+        await cat_banner_select_category(update, ctx)
+    elif data.startswith("cat_banner_pick_cat_"):
+        category = data[20:]
+        await cat_banner_pick_product(update, ctx, category)
+    elif data.startswith("set_cat_banner_"):
+        await query.answer()
+        # Формат: set_cat_banner_{category}_{pid}
+        # category может содержать пробелы, pid — последний элемент
+        rest = data[15:]  # убираем "set_cat_banner_"
+        # pid — последний сегмент после последнего _
+        last_underscore = rest.rfind("_")
+        category = rest[:last_underscore]
+        pid = int(rest[last_underscore+1:])
+        p = products.get(pid, {})
+        if uid not in user_temp:
+            user_temp[uid] = {}
+        user_temp[uid]["pending_cat_banner"] = {"pid": pid, "seller_id": uid, "photo_id": None}
+        user_states[uid] = f"uploading_cat_banner_photo_{category}"
+        await query.edit_message_text(
+            f"🎯 Товар выбран: *{p.get('title','')}*\nКатегория: *{category}*\n\n"
+            "Отправьте фото для саб-баннера (или напишите «пропустить» чтобы без фото):",
+            parse_mode="Markdown")
+    elif data.startswith("remove_cat_banner_"):
+        await query.answer()
+        category = data[18:]
+        if category in state_store["cat_banners"] and state_store["cat_banners"][category].get("seller_id") == uid:
+            del state_store["cat_banners"][category]
+            await query.answer(f"✅ Саб-баннер в {category} снят")
+        await ad_cat_banner_page(update, ctx)
+
     elif data == "ad_broadcast":
         await ad_broadcast_page(update, ctx)
     elif data == "broadcast_select":
@@ -1152,15 +1286,14 @@ async def button_handler(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         await query.answer()
         pid = int(data[14:])
         p = products.get(pid, {})
-        # Уведомляем админа
         try:
             await ctx.bot.send_message(ADMIN_ID,
                 f"📢 *Запрос на рассылку!*\n👤 id: {uid}\n🛍 {p.get('title','')} — {p.get('price','')}₽\n\nЗапусти: /broadcast_{pid}_{uid}",
                 parse_mode="Markdown")
-        except:
+        except Exception:
             pass
         await query.edit_message_text(
-            "✅ *Заявка на рассылку принята!*\n\nРассылка будет запущена в течение 1 часа после подтверждения оплаты.",
+            "✅ *Заявка на рассылку принята!*\n\nРассылка будет запущена в течение 1 часа.",
             parse_mode="Markdown",
             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("◀️ Назад", callback_data="ad_menu")]]))
     elif data == "ad_verified":
@@ -1172,7 +1305,7 @@ async def button_handler(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             await ctx.bot.send_message(ADMIN_ID,
                 f"✅ *Запрос на верификацию!*\n👤 @{uname} (id: {uid})\n\nАктивируй: /verify_{uid}",
                 parse_mode="Markdown")
-        except:
+        except Exception:
             pass
         await query.edit_message_text(
             "✅ Заявка отправлена! Активация в течение 1 часа.",
@@ -1236,7 +1369,7 @@ async def button_handler(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             await ctx.bot.send_message(ADMIN_ID,
                 f"💰 *Заявка на ИИ!*\n👤 @{uname} (id: {uid})\n\nАктивируй: /activate_{uid}",
                 parse_mode="Markdown")
-        except:
+        except Exception:
             pass
         await query.edit_message_text(
             "✅ Заявка отправлена! Активация в течение 1 часа.",
@@ -1326,7 +1459,6 @@ async def button_handler(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             parse_mode="Markdown",
             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("◀️ Назад", callback_data="back_main")]]))
 
-
 # ================================================================
 # ADMIN КОМАНДЫ
 # ================================================================
@@ -1334,6 +1466,32 @@ async def handle_admin_commands(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ADMIN_ID:
         return
     text = update.message.text or ""
+
+    # Пропуск фото для баннеров
+    uid = update.effective_user.id
+    state = user_states.get(uid, "")
+    if text.lower() == "пропустить":
+        if state == "uploading_main_banner_photo":
+            banner_data = user_temp.get(uid, {}).get("pending_banner", {})
+            if banner_data:
+                state_store["catalog_banner"] = banner_data
+                user_states[uid] = None
+                p = products.get(banner_data.get("pid"), {})
+                await update.message.reply_text(
+                    f"✅ *Основной баннер активирован без фото!*\n\n🛍 {p.get('title','')}",
+                    parse_mode="Markdown")
+            return
+        if state and state.startswith("uploading_cat_banner_photo_"):
+            category = state[len("uploading_cat_banner_photo_"):]
+            banner_data = user_temp.get(uid, {}).get("pending_cat_banner", {})
+            if banner_data:
+                state_store["cat_banners"][category] = banner_data
+                user_states[uid] = None
+                p = products.get(banner_data.get("pid"), {})
+                await update.message.reply_text(
+                    f"✅ *Саб-баннер в {category} активирован без фото!*\n\n🛍 {p.get('title','')}",
+                    parse_mode="Markdown")
+            return
 
     if text.startswith("/activate_"):
         target_id = int(text.split("_")[1])
@@ -1345,21 +1503,24 @@ async def handle_admin_commands(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             sellers[target_id]["ai_enabled"] = True
         try:
             await ctx.bot.send_message(target_id, "🎉 *ИИ-помощник активирован!*", parse_mode="Markdown")
-        except:
+        except Exception:
             pass
         await update.message.reply_text(f"✅ ИИ активирован для {target_id}")
-
     elif text.startswith("/verify_"):
         target_id = int(text.split("_")[1])
         verified_sellers.add(target_id)
         try:
-            await ctx.bot.send_message(target_id, "✅ *Бейдж «Проверен» активирован!*\n\nТеперь вашим товарам больше доверяют.", parse_mode="Markdown")
-        except:
+            await ctx.bot.send_message(target_id,
+                "✅ *Бейдж «Проверен» активирован!*\n\nТеперь вашим товарам больше доверяют.",
+                parse_mode="Markdown")
+        except Exception:
             pass
         await update.message.reply_text(f"✅ Верификация активирована для {target_id}")
-
+    elif text.startswith("/unverify_"):
+        target_id = int(text.split("_")[1])
+        verified_sellers.discard(target_id)
+        await update.message.reply_text(f"✅ Верификация снята с {target_id}")
     elif text.startswith("/broadcast_"):
-        # Формат: /broadcast_pid_seller_id
         parts = text.split("_")
         if len(parts) >= 3:
             pid = int(parts[1])
@@ -1384,30 +1545,23 @@ async def handle_admin_commands(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
                         ]))
                     sent += 1
                     await asyncio.sleep(0.05)
-                except:
+                except Exception:
                     pass
             await update.message.reply_text(f"✅ Рассылка отправлена {sent} пользователям!")
-
     elif text == "/stats":
+        main_banner_active = "Да" if state_store.get("catalog_banner") else "Нет"
+        cat_banners_count = len(state_store.get("cat_banners", {}))
         text_out = (
             f"📊 *Статистика бота*\n\n"
             f"👥 Всего пользователей: {len(all_users)}\n"
             f"🛍 Товаров: {len(products)}\n"
             f"🏪 Продавцов: {len(sellers)}\n"
             f"✅ Верифицированных: {len(verified_sellers)}\n"
-            f"📣 Рекламных товаров: {len(ad_products)}\n"
-            f"🖼 Баннер активен: {'Да' if state_store.get('sponsor_banner') else 'Нет'}"
+            f"📣 Рекламных товаров (топ): {len(ad_products)}\n"
+            f"🖼 Основной баннер: {main_banner_active}\n"
+            f"🎯 Саб-баннеров: {cat_banners_count}"
         )
         await update.message.reply_text(text_out, parse_mode="Markdown")
-
-    elif text == "/unverify":
-        await update.message.reply_text("Использование: /unverify_ID")
-
-    elif text.startswith("/unverify_"):
-        target_id = int(text.split("_")[1])
-        verified_sellers.discard(target_id)
-        await update.message.reply_text(f"✅ Верификация снята с {target_id}")
-
 
 def main():
     app = Application.builder().token(TELEGRAM_TOKEN).build()
@@ -1426,7 +1580,6 @@ def main():
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     logger.info("SmartSalesAI Bot started!")
     app.run_polling(drop_pending_updates=True)
-
 
 if __name__ == "__main__":
     main()
