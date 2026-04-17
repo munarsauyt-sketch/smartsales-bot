@@ -1259,7 +1259,7 @@ async def button_handler(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         parts = data.split("_")
         cat_idx, page_num = int(parts[1]), int(parts[2])
         await show_category(update, ctx, CATEGORIES[cat_idx], page_num)
-    elif data.startswith("cat_") and not data.startswith("catpage_"):
+    elif data.startswith("cat_") and not data.startswith("catpage_") and not data.startswith("cat_banner_"):
         await show_category(update, ctx, data[4:])
     elif data.startswith("product_"):
         parts = data.split("_")
