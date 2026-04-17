@@ -831,90 +831,66 @@ async def start_chat(update, ctx, pid):
         pass
     if uid in pending_ai_tasks:
         pending_ai_tasks[uid].cancel()
-    asyncio.create_task(ai_instant_intro(ctx, uid, pid, buyer_name))
-    task = asyncio.create_task(ai_reply_after_delay(ctx, uid, pid, buyer_name))
+    # Передаём seller_id напрямую чтобы не было гонки
+    task = asyncio.create_task(ai_respond(ctx, uid, pid, buyer_name, seller_id))
     pending_ai_tasks[uid] = task
 
-async def ai_instant_intro(ctx, buyer_id, pid, buyer_name):
+async def ai_respond(ctx, buyer_id, pid, buyer_name, seller_id):
     """ИИ отвечает покупателю через таймер продавца"""
-    chat_info = active_chats.get(buyer_id, {})
-    seller_id = chat_info.get("seller_id")
-    seller_tmp = sellers.get(seller_id, {})
-    timer_key = seller_tmp.get("ai_timer", "2m")
+    # Получаем таймер сразу — seller_id передан напрямую
+    seller = sellers.get(seller_id, {})
+    timer_key = seller.get("ai_timer", "2m")
     delay = AI_TIMERS.get(timer_key, ("2 минуты", 120))[1]
 
-    logger.info(f"AI timer started: {delay}s for buyer {buyer_id}, seller {seller_id}")
+    logger.info(f"AI ждёт {delay}с для покупателя {buyer_id}, продавец {seller_id}")
     await asyncio.sleep(delay)
 
+    # Проверяем что чат ещё активен и не ответили
     chat = active_chats.get(buyer_id)
     if not chat or chat.get("ai_replied"):
-        logger.info(f"AI skipped: chat={chat}, ai_replied={chat.get('ai_replied') if chat else None}")
+        logger.info(f"AI пропущен: чат={bool(chat)}, уже ответил={chat.get('ai_replied') if chat else '-'}")
+        return
+
+    # Перечитываем продавца (могло измениться)
+    seller = sellers.get(seller_id, {})
+
+    if not seller.get("ai_enabled"):
+        logger.info(f"AI выключен у продавца {seller_id}")
+        return
+    if not seller.get("ai_paid"):
+        logger.info(f"AI не оплачен у продавца {seller_id}")
         return
 
     p = products.get(pid, {})
-    seller = sellers.get(seller_id, {})
-
-    if not seller.get("ai_enabled") or not seller.get("ai_paid"):
-        logger.info(f"AI disabled for seller {seller_id}: enabled={seller.get('ai_enabled')} paid={seller.get('ai_paid')}")
-        return
-
     prompt = seller.get("ai_prompt", "") or DEFAULT_AI_PROMPT
-    seller_prods = [products[pid2] for pid2 in seller.get("products", []) if pid2 in products]
-    other_prods = [p2["title"] for p2 in seller_prods if p2["title"] != p.get("title","")][:3]
-    other_text = f"\nДругие товары продавца: {', '.join(other_prods)}" if other_prods else ""
+    seller_prods = [products[p2] for p2 in seller.get("products", []) if p2 in products]
+    other_titles = [pr["title"] for pr in seller_prods if pr["title"] != p.get("title","")][:3]
+    other_text = f"\nДругие товары: {', '.join(other_titles)}" if other_titles else ""
 
     try:
         resp = groq_client.chat.completions.create(
             model="llama-3.1-8b-instant",
             messages=[
-                {"role": "system", "content": f"{prompt}\nТовар: {p.get('title','')}. {p.get('description','')}. Цена: {p.get('price','')}₽.{other_text}"},
-                {"role": "user", "content": f"Покупатель {buyer_name} написал. Ответь коротко — представься и назови 2-3 преимущества товара. Максимум 3 предложения на русском."}
-            ], max_tokens=200)
+                {"role": "system", "content": (
+                    f"{prompt}\n"
+                    f"Товар: {p.get('title','')}. {p.get('description','')}. Цена: {p.get('price','')}₽."
+                    f"{other_text}\nОтвечай коротко на русском, как живой продавец."
+                )},
+                {"role": "user", "content": f"Покупатель {buyer_name} написал в чат. Ответь — представься и назови 2-3 преимущества товара. Максимум 3 предложения."}
+            ],
+            max_tokens=200
+        )
         ai_text = resp.choices[0].message.content
         chat["ai_replied"] = True
         seller_name = seller.get("name", "Продавец")
-        await ctx.bot.send_message(buyer_id, f"🤖 *{seller_name}:*\n\n{ai_text}", parse_mode="Markdown")
-        logger.info(f"AI replied OK to buyer {buyer_id}")
+        await ctx.bot.send_message(
+            buyer_id,
+            f"🤖 *{seller_name}:*\n\n{ai_text}",
+            parse_mode="Markdown"
+        )
+        logger.info(f"AI успешно ответил покупателю {buyer_id}")
     except Exception as e:
-        logger.error(f"AI intro error: {e}")
-
-async def ai_reply_after_delay(ctx, buyer_id, pid, buyer_name):
-    """Резервный ответ если покупатель написал снова"""
-    chat_info = active_chats.get(buyer_id, {})
-    seller_id = chat_info.get("seller_id")
-    seller_tmp = sellers.get(seller_id, {})
-    timer_key = seller_tmp.get("ai_timer", "2m")
-    delay = AI_TIMERS.get(timer_key, ("2 минуты", 120))[1]
-
-    await asyncio.sleep(delay + 30)
-
-    chat = active_chats.get(buyer_id)
-    if not chat or chat.get("ai_replied"):
-        return
-
-    p = products.get(pid, {})
-    seller = sellers.get(seller_id, {})
-
-    if not seller.get("ai_enabled") or not seller.get("ai_paid"):
-        return
-
-    prompt = seller.get("ai_prompt", "") or DEFAULT_AI_PROMPT
-    seller_prods = [products[pid2] for pid2 in seller.get("products", []) if pid2 in products]
-    other_prods = [p2["title"] for p2 in seller_prods if p2["title"] != p.get("title","")][:3]
-    other_text = f"\nДругие товары: {', '.join(other_prods)}" if other_prods else ""
-
-    try:
-        resp = groq_client.chat.completions.create(
-            model="llama-3.1-8b-instant",
-            messages=[
-                {"role": "system", "content": f"{prompt}\nТовар: {p.get('title','')}. {p.get('description','')}. Цена: {p.get('price','')}₽.{other_text} Отвечай кратко на русском."},
-                {"role": "user", "content": f"Покупатель {buyer_name} ещё ждёт. Уточни детали и предложи помочь. 2 предложения."}
-            ], max_tokens=150)
-        ai_text = resp.choices[0].message.content
-        chat["ai_replied"] = True
-        await ctx.bot.send_message(buyer_id, f"🤖 *ИИ-продавец:*\n\n{ai_text}", parse_mode="Markdown")
-    except Exception as e:
-        logger.error(f"AI delay error: {e}")
+        logger.error(f"AI ошибка: {e}")
 
 # ================================================================
 # МОЙ МАГАЗИН
