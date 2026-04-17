@@ -14,8 +14,10 @@ ADMIN_ID = int(os.environ.get("ADMIN_ID", "1048682172"))
 ADMIN_USERNAME = "evnnnu"
 YOOMONEY_WALLET = "4100118679419062"
 AI_PRICE = 500
-AD_BANNER_PRICE = 500    # основной баннер при каталоге
-AD_CAT_BANNER_PRICE = 200  # саб-баннер для категории
+AD_BANNER_3D = 500     # основной баннер 3 дня
+AD_BANNER_7D = 750     # основной баннер неделя
+AD_CAT_3D = 500        # саб-баннер 3 дня
+AD_CAT_7D = 750        # саб-баннер неделя
 AD_TOP_PRICE = 200
 VERIFIED_PRICE = 300
 groq_client = Groq(api_key=GROQ_API_KEY)
@@ -629,6 +631,8 @@ async def ad_menu(update, ctx):
     ver_status = "✅ Активен" if uid in verified_sellers else "❌ Нет"
     has_cat_banner = any(v.get("seller_id") == uid for v in state_store["cat_banners"].values())
     has_main_banner = state_store["catalog_banner"] and state_store["catalog_banner"].get("seller_id") == uid
+    main_status = "✅ Активен" if has_main_banner else "❌ Нет"
+    cat_status = "✅ Активен" if has_cat_banner else "❌ Нет"
     kb = [
         [InlineKeyboardButton("🖼 Основной баннер в каталоге", callback_data="ad_main_banner")],
         [InlineKeyboardButton("🎯 Саб-баннер в категории", callback_data="ad_cat_banner")],
@@ -637,88 +641,66 @@ async def ad_menu(update, ctx):
         [InlineKeyboardButton("✅ Бейдж «Проверен»", callback_data="ad_verified")],
         [InlineKeyboardButton("◀️ Назад", callback_data="my_shop")],
     ]
-    main_status = "✅ Активен" if has_main_banner else "❌ Нет"
-    cat_status = "✅ Активен" if has_cat_banner else "❌ Нет"
     text = (
         "📣 *Реклама в SmartSalesAI*\n\n"
-        f"🖼 Основной баннер в каталоге: {main_status} — *{AD_BANNER_PRICE}₽/мес*\n"
-        f"🎯 Саб-баннер в категории: {cat_status} — *{AD_CAT_BANNER_PRICE}₽/мес*\n"
+        f"🖼 Основной баннер в каталоге: {main_status}\n"
+        f"   3 дня — *{AD_BANNER_3D}₽* | неделя — *{AD_BANNER_7D}₽*\n\n"
+        f"🎯 Саб-баннер в категории: {cat_status}\n"
+        f"   3 дня — *{AD_CAT_3D}₽* | неделя — *{AD_CAT_7D}₽*\n\n"
         f"📣 Топ в категории — *{AD_TOP_PRICE}₽/нед*\n"
         f"📢 Рассылка всем — *{VERIFIED_PRICE}₽*\n"
         f"✅ Бейдж «Проверен»: {ver_status} — *{VERIFIED_PRICE}₽/мес*\n\n"
         f"Оплата: ЮMoney `{YOOMONEY_WALLET}`\n"
-        f"После оплаты: @{ADMIN_USERNAME}"
+        f"После оплаты пишите @{ADMIN_USERNAME}"
     )
     await query.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(kb))
 
 # ----------------------------------------------------------------
-# ОСНОВНОЙ БАННЕР в каталоге (500₽)
+# ОСНОВНОЙ БАННЕР в каталоге
+# Логика: бот просто просит фото — никакого списка товаров
 # ----------------------------------------------------------------
 async def ad_main_banner_page(update, ctx):
     query = update.callback_query
     await query.answer()
     uid = update.effective_user.id
-    s = sellers.get(uid, {})
-    my_prods = [p for p in s.get("products", []) if p in products]
-    if not my_prods:
-        await query.edit_message_text(
-            "❌ Сначала добавьте товар.",
-            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("◀️ Назад", callback_data="ad_menu")]]))
-        return
     has_banner = state_store["catalog_banner"] and state_store["catalog_banner"].get("seller_id") == uid
-    yoo_link = f"https://yoomoney.ru/transfer/quickpay?receiver={YOOMONEY_WALLET}&sum={AD_BANNER_PRICE}&label=mainbanner_{uid}&targets=Основной+баннер+SmartSalesAI"
+    yoo_3d = f"https://yoomoney.ru/transfer/quickpay?receiver={YOOMONEY_WALLET}&sum={AD_BANNER_3D}&label=mainbanner3d_{uid}&targets=Баннер+3дня+SmartSalesAI"
+    yoo_7d = f"https://yoomoney.ru/transfer/quickpay?receiver={YOOMONEY_WALLET}&sum={AD_BANNER_7D}&label=mainbanner7d_{uid}&targets=Баннер+неделя+SmartSalesAI"
     kb = []
     if has_banner:
         kb.append([InlineKeyboardButton("❌ Снять баннер", callback_data="remove_main_banner")])
     else:
-        kb.append([InlineKeyboardButton(f"💳 Оплатить {AD_BANNER_PRICE}₽", url=yoo_link)])
-        kb.append([InlineKeyboardButton("✅ Я оплатил — выбрать товар", callback_data="main_banner_select")])
+        kb.append([InlineKeyboardButton(f"💳 3 дня — {AD_BANNER_3D}₽", url=yoo_3d)])
+        kb.append([InlineKeyboardButton(f"💳 Неделя — {AD_BANNER_7D}₽", url=yoo_7d)])
+        kb.append([InlineKeyboardButton("✅ Я оплатил — загрузить баннер", callback_data="upload_main_banner")])
     kb.append([InlineKeyboardButton("◀️ Назад", callback_data="ad_menu")])
     text = (
         "🖼 *Основной баннер в каталоге*\n\n"
-        f"Стоимость: *{AD_BANNER_PRICE}₽/мес*\n\n"
-        "Показывается каждому кто открывает каталог товаров.\n"
-        f"Охват: все {len(all_users)} пользователей бота.\n\n"
-        "Можно добавить фото баннера!\n"
-        "После оплаты нажмите «Я оплатил» → выберите товар → отправьте фото (или пропустите)."
+        f"3 дня — *{AD_BANNER_3D}₽*\n"
+        f"Неделя — *{AD_BANNER_7D}₽*\n\n"
+        "Ваш баннер (картинка) показывается каждому кто открывает каталог.\n"
+        f"Охват: все пользователи бота.\n\n"
+        "После оплаты нажмите «Я оплатил» и отправьте фото баннера.\n"
+        "На фото можно указать ваш контакт, цену, условия."
     )
     if has_banner:
-        text += "\n\n✅ *Баннер активен!*"
+        text += "\n\n✅ *Ваш баннер сейчас активен!*"
     await query.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(kb))
 
-async def main_banner_select_product(update, ctx):
-    query = update.callback_query
-    await query.answer()
-    uid = update.effective_user.id
-    s = sellers.get(uid, {})
-    my_prods = [p for p in s.get("products", []) if p in products]
-    kb = []
-    for pid in my_prods:
-        p = products[pid]
-        kb.append([InlineKeyboardButton(f"{p['title'][:35]}", callback_data=f"set_main_banner_{pid}")])
-    kb.append([InlineKeyboardButton("◀️ Назад", callback_data="ad_main_banner")])
-    await query.edit_message_text("🖼 Выберите товар для основного баннера:",
-                                   reply_markup=InlineKeyboardMarkup(kb))
-
 # ----------------------------------------------------------------
-# САБ-БАННЕР в категории (200₽)
+# САБ-БАННЕР в категории
+# Логика: выбираешь категорию → бот просит фото → фото показывается сверху в категории
 # ----------------------------------------------------------------
 async def ad_cat_banner_page(update, ctx):
     query = update.callback_query
     await query.answer()
     uid = update.effective_user.id
-    s = sellers.get(uid, {})
-    my_prods = [p for p in s.get("products", []) if p in products]
-    if not my_prods:
-        await query.edit_message_text(
-            "❌ Сначала добавьте товар.",
-            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("◀️ Назад", callback_data="ad_menu")]]))
-        return
-    # Показываем активные саб-баннеры этого продавца
     my_cat_banners = [cat for cat, b in state_store["cat_banners"].items() if b.get("seller_id") == uid]
-    yoo_link = f"https://yoomoney.ru/transfer/quickpay?receiver={YOOMONEY_WALLET}&sum={AD_CAT_BANNER_PRICE}&label=catbanner_{uid}&targets=Саб-баннер+SmartSalesAI"
+    yoo_3d = f"https://yoomoney.ru/transfer/quickpay?receiver={YOOMONEY_WALLET}&sum={AD_CAT_3D}&label=catbanner3d_{uid}&targets=Саб-баннер+3дня+SmartSalesAI"
+    yoo_7d = f"https://yoomoney.ru/transfer/quickpay?receiver={YOOMONEY_WALLET}&sum={AD_CAT_7D}&label=catbanner7d_{uid}&targets=Саб-баннер+неделя+SmartSalesAI"
     kb = [
-        [InlineKeyboardButton(f"💳 Оплатить {AD_CAT_BANNER_PRICE}₽", url=yoo_link)],
+        [InlineKeyboardButton(f"💳 3 дня — {AD_CAT_3D}₽", url=yoo_3d)],
+        [InlineKeyboardButton(f"💳 Неделя — {AD_CAT_7D}₽", url=yoo_7d)],
         [InlineKeyboardButton("✅ Я оплатил — выбрать категорию", callback_data="cat_banner_select_cat")],
     ]
     if my_cat_banners:
@@ -727,46 +709,29 @@ async def ad_cat_banner_page(update, ctx):
     kb.append([InlineKeyboardButton("◀️ Назад", callback_data="ad_menu")])
     text = (
         "🎯 *Саб-баннер в категории*\n\n"
-        f"Стоимость: *{AD_CAT_BANNER_PRICE}₽/мес* за одну категорию\n\n"
-        "Показывается сверху при открытии выбранной категории.\n"
-        "Можно добавить фото!\n\n"
+        f"3 дня — *{AD_CAT_3D}₽* | Неделя — *{AD_CAT_7D}₽*\n\n"
+        "Ваш баннер (картинка) показывается сверху при открытии выбранной категории.\n\n"
+        "Шаги:\n"
+        "1. Оплатите\n"
+        "2. Нажмите «Я оплатил»\n"
+        "3. Выберите категорию (Brawl Stars, PUBG и т.д.)\n"
+        "4. Отправьте фото баннера\n\n"
+        "На фото укажите ваш контакт и условия."
     )
     if my_cat_banners:
-        text += f"✅ Активные баннеры: {', '.join(my_cat_banners)}\n"
-    else:
-        text += "❌ Активных саб-баннеров нет.\n"
+        text += f"\n\n✅ Активные баннеры: {', '.join(my_cat_banners)}"
     await query.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(kb))
 
 async def cat_banner_select_category(update, ctx):
     query = update.callback_query
     await query.answer()
-    kb = [[InlineKeyboardButton(f"{CAT_EMOJI.get(c,'📦')} {c}", callback_data=f"cat_banner_pick_cat_{c}")]
+    kb = [[InlineKeyboardButton(f"{CAT_EMOJI.get(c,'📦')} {c}", callback_data=f"cat_banner_pick_{c}")]
           for c in CATEGORIES]
     kb.append([InlineKeyboardButton("◀️ Назад", callback_data="ad_cat_banner")])
-    await query.edit_message_text("🎯 Выберите категорию для саб-баннера:",
-                                   reply_markup=InlineKeyboardMarkup(kb))
-
-async def cat_banner_pick_product(update, ctx, category):
-    query = update.callback_query
-    await query.answer()
-    uid = update.effective_user.id
-    s = sellers.get(uid, {})
-    my_prods = [p for p in s.get("products", []) if p in products and products[p]["category"] == category]
-    if not my_prods:
-        # Если нет товаров в этой категории — показываем все товары
-        my_prods = [p for p in s.get("products", []) if p in products]
-    kb = []
-    for pid in my_prods:
-        p = products[pid]
-        kb.append([InlineKeyboardButton(f"{p['title'][:35]}", callback_data=f"set_cat_banner_{category}_{pid}")])
-    kb.append([InlineKeyboardButton("◀️ Назад", callback_data="cat_banner_select_cat")])
     await query.edit_message_text(
-        f"🎯 Выберите товар для саб-баннера в *{category}*:",
-        parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(kb))
+        "🎯 В какой категории хотите разместить баннер?",
+        reply_markup=InlineKeyboardMarkup(kb))
 
-# ----------------------------------------------------------------
-# ОСТАЛЬНЫЕ РЕКЛАМНЫЕ СТРАНИЦЫ
-# ----------------------------------------------------------------
 async def ad_broadcast_page(update, ctx):
     query = update.callback_query
     await query.answer()
@@ -947,6 +912,21 @@ async def handle_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if text == "🛒 Каталог":
         await show_catalog_cmd(update, ctx)
         return
+    # Пропустить фото для баннеров (пишем текст вместо фото)
+    if text.lower() in ["пропустить", "skip"]:
+        if state == "uploading_main_banner":
+            user_states[uid] = None
+            await update.message.reply_text(
+                "❌ Баннер без фото не может быть активирован. Отправьте изображение.",
+                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("◀️ Назад", callback_data="ad_main_banner")]]))
+            return
+        if state and state.startswith("uploading_cat_banner_"):
+            user_states[uid] = None
+            await update.message.reply_text(
+                "❌ Баннер без фото не может быть активирован. Отправьте изображение.",
+                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("◀️ Назад", callback_data="ad_cat_banner")]]))
+            return
+
     if state == "searching":
         user_states[uid] = None
         await do_search(uid, text, update, ctx)
@@ -1063,6 +1043,7 @@ async def handle_photo(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     uid = update.effective_user.id
     state = user_states.get(uid, "")
 
+    # Фото товара при добавлении
     if state == "add_photos":
         if uid not in user_temp:
             user_temp[uid] = {"photos": []}
@@ -1076,35 +1057,42 @@ async def handle_photo(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("✅ Выбрать категорию", callback_data="photos_done")]]))
         return
 
-    # Фото для основного баннера
-    if state == "uploading_main_banner_photo":
+    # Фото для ОСНОВНОГО баннера каталога
+    if state == "uploading_main_banner":
         file_id = update.message.photo[-1].file_id
-        banner_data = user_temp.get(uid, {}).get("pending_banner", {})
-        if banner_data:
-            banner_data["photo_id"] = file_id
-            state_store["catalog_banner"] = banner_data
-            user_states[uid] = None
-            p = products.get(banner_data.get("pid"), {})
-            await update.message.reply_text(
-                f"✅ *Основной баннер активирован с фото!*\n\n🛍 {p.get('title','')} будет показываться в каталоге.",
-                parse_mode="Markdown",
-                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("◀️ Назад", callback_data="ad_menu")]]))
+        state_store["catalog_banner"] = {"photo_id": file_id, "seller_id": uid}
+        user_states[uid] = None
+        await update.message.reply_text(
+            "✅ *Основной баннер активирован!*\n\nТеперь ваше изображение показывается всем при открытии каталога.",
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("◀️ Реклама", callback_data="ad_menu")]]))
+        # Уведомляем админа
+        uname = update.effective_user.username or str(uid)
+        try:
+            await ctx.bot.send_message(ADMIN_ID,
+                f"🖼 *Новый основной баннер!*\n👤 @{uname} (id: {uid})\n\nБаннер активирован автоматически.",
+                parse_mode="Markdown")
+        except Exception:
+            pass
         return
 
-    # Фото для саб-баннера
-    if state and state.startswith("uploading_cat_banner_photo_"):
-        category = state[len("uploading_cat_banner_photo_"):]
+    # Фото для САБ-баннера категории
+    if state and state.startswith("uploading_cat_banner_"):
+        category = state[len("uploading_cat_banner_"):]
         file_id = update.message.photo[-1].file_id
-        banner_data = user_temp.get(uid, {}).get("pending_cat_banner", {})
-        if banner_data:
-            banner_data["photo_id"] = file_id
-            state_store["cat_banners"][category] = banner_data
-            user_states[uid] = None
-            p = products.get(banner_data.get("pid"), {})
-            await update.message.reply_text(
-                f"✅ *Саб-баннер в {category} активирован с фото!*\n\n🛍 {p.get('title','')} будет показываться в категории.",
-                parse_mode="Markdown",
-                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("◀️ Назад", callback_data="ad_menu")]]))
+        state_store["cat_banners"][category] = {"photo_id": file_id, "seller_id": uid}
+        user_states[uid] = None
+        await update.message.reply_text(
+            f"✅ *Саб-баннер в {category} активирован!*\n\nВаше изображение показывается сверху в этой категории.",
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("◀️ Реклама", callback_data="ad_menu")]]))
+        uname = update.effective_user.username or str(uid)
+        try:
+            await ctx.bot.send_message(ADMIN_ID,
+                f"🎯 *Новый саб-баннер!*\n👤 @{uname} (id: {uid})\nКатегория: {category}\n\nАктивирован автоматически.",
+                parse_mode="Markdown")
+        except Exception:
+            pass
         return
 
 # ================================================================
@@ -1220,28 +1208,25 @@ async def button_handler(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     # --- РЕКЛАМНОЕ МЕНЮ ---
     elif data == "ad_menu":
         await ad_menu(update, ctx)
+
+    # Основной баннер
     elif data == "ad_main_banner":
         await ad_main_banner_page(update, ctx)
-    elif data == "main_banner_select":
-        await main_banner_select_product(update, ctx)
-    elif data.startswith("set_main_banner_"):
+    elif data == "upload_main_banner":
         await query.answer()
-        pid = int(data[16:])
-        p = products.get(pid, {})
-        # Сохраняем pending и просим фото
-        if uid not in user_temp:
-            user_temp[uid] = {}
-        user_temp[uid]["pending_banner"] = {"pid": pid, "seller_id": uid, "photo_id": None}
-        user_states[uid] = "uploading_main_banner_photo"
+        user_states[uid] = "uploading_main_banner"
         await query.edit_message_text(
-            f"🖼 Товар выбран: *{p.get('title','')}*\n\n"
-            "Отправьте фото для баннера (или напишите «пропустить» чтобы без фото):",
-            parse_mode="Markdown")
+            "🖼 *Загрузка основного баннера*\n\n"
+            "Отправьте изображение для баннера.\n"
+            "На фото укажите ваш контакт (@username), цену и условия.\n\n"
+            "После отправки фото — баннер сразу активируется!",
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("◀️ Назад", callback_data="ad_main_banner")]]))
     elif data == "remove_main_banner":
         await query.answer()
         if state_store["catalog_banner"] and state_store["catalog_banner"].get("seller_id") == uid:
             state_store["catalog_banner"] = None
-            await query.answer("✅ Основной баннер снят")
+        await query.answer("✅ Основной баннер снят")
         await ad_main_banner_page(update, ctx)
 
     # Саб-баннер
@@ -1249,33 +1234,23 @@ async def button_handler(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         await ad_cat_banner_page(update, ctx)
     elif data == "cat_banner_select_cat":
         await cat_banner_select_category(update, ctx)
-    elif data.startswith("cat_banner_pick_cat_"):
-        category = data[20:]
-        await cat_banner_pick_product(update, ctx, category)
-    elif data.startswith("set_cat_banner_"):
+    elif data.startswith("cat_banner_pick_"):
+        category = data[16:]
         await query.answer()
-        # Формат: set_cat_banner_{category}_{pid}
-        # category может содержать пробелы, pid — последний элемент
-        rest = data[15:]  # убираем "set_cat_banner_"
-        # pid — последний сегмент после последнего _
-        last_underscore = rest.rfind("_")
-        category = rest[:last_underscore]
-        pid = int(rest[last_underscore+1:])
-        p = products.get(pid, {})
-        if uid not in user_temp:
-            user_temp[uid] = {}
-        user_temp[uid]["pending_cat_banner"] = {"pid": pid, "seller_id": uid, "photo_id": None}
-        user_states[uid] = f"uploading_cat_banner_photo_{category}"
+        user_states[uid] = f"uploading_cat_banner_{category}"
         await query.edit_message_text(
-            f"🎯 Товар выбран: *{p.get('title','')}*\nКатегория: *{category}*\n\n"
-            "Отправьте фото для саб-баннера (или напишите «пропустить» чтобы без фото):",
-            parse_mode="Markdown")
+            f"🎯 *Саб-баннер в {category}*\n\n"
+            "Отправьте изображение для баннера.\n"
+            "На фото укажите ваш контакт (@username), условия и что предлагаете.\n\n"
+            "После отправки фото — баннер сразу активируется в этой категории!",
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("◀️ Назад", callback_data="ad_cat_banner")]]))
     elif data.startswith("remove_cat_banner_"):
         await query.answer()
         category = data[18:]
         if category in state_store["cat_banners"] and state_store["cat_banners"][category].get("seller_id") == uid:
             del state_store["cat_banners"][category]
-            await query.answer(f"✅ Саб-баннер в {category} снят")
+        await query.answer(f"✅ Саб-баннер снят")
         await ad_cat_banner_page(update, ctx)
 
     elif data == "ad_broadcast":
