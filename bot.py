@@ -38,11 +38,12 @@ top_sellers = {}
 ad_products = []
 guarantees = {}
 state_store = {
-    "sponsor_banner": None,       # баннер при /start (старый)
-    "catalog_banner": None,       # ОСНОВНОЙ баннер при открытии каталога (500₽)
-    # саб-баннеры для каждой категории (200₽)
-    "cat_banners": {}             # {"Brawl Stars": {"pid": .., "seller_id": .., "photo_id": ..}, ...}
+    "sponsor_banner": None,
+    "catalog_banner": None,
+    "cat_banners": {}
 }
+# Храним ID последнего сообщения бота для каждого пользователя
+last_bot_message = {}  # uid -> message_id
 verified_sellers = set()
 all_users = set()
 PAGE_SIZE = 8
@@ -189,7 +190,16 @@ async def start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         [[KeyboardButton("📖 Как работает бот"), KeyboardButton("🛒 Каталог")]],
         resize_keyboard=True, is_persistent=True
     )
-    await update.effective_message.reply_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(kb))
+    # Удаляем предыдущее сообщение бота чтобы не засорять чат
+    if uid in last_bot_message:
+        try:
+            await ctx.bot.delete_message(chat_id=uid, message_id=last_bot_message[uid])
+        except Exception:
+            pass
+
+    sent = await update.effective_message.reply_text(
+        text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(kb))
+    last_bot_message[uid] = sent.message_id
 
 # ================================================================
 # ПОМОЩЬ / КАТАЛОГ
@@ -214,16 +224,36 @@ async def help_command(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         "• Бейдж Проверен — 300₽/мес\n\n"
         f"По вопросам рекламы: @{ADMIN_USERNAME}"
     )
-    await update.effective_message.reply_text(
+    uid = update.effective_user.id
+    if uid in last_bot_message:
+        try:
+            await ctx.bot.delete_message(chat_id=uid, message_id=last_bot_message[uid])
+        except Exception:
+            pass
+    sent = await update.effective_message.reply_text(
         text, parse_mode="Markdown",
         reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🚀 Начать", callback_data="back_main")]]))
+    last_bot_message[uid] = sent.message_id
 
 async def show_catalog_cmd(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    uid = update.effective_user.id
     kb = [[InlineKeyboardButton(f"{CAT_EMOJI.get(c,'📦')} {c}", callback_data=f"cat_{c}")] for c in CATEGORIES]
     kb.append([InlineKeyboardButton("◀️ Назад", callback_data="back_main")])
-    await update.effective_message.reply_text(
-        "📂 *Выберите категорию:*", parse_mode="Markdown",
+    # Удаляем предыдущее сообщение бота
+    if uid in last_bot_message:
+        try:
+            await ctx.bot.delete_message(chat_id=uid, message_id=last_bot_message[uid])
+        except Exception:
+            pass
+    banner = state_store.get("catalog_banner")
+    catalog_text = "📂 *Выберите категорию:*"
+    if banner and banner.get("photo_id") and banner.get("caption"):
+        cap = banner["caption"]
+        catalog_text = f"📣 _{cap}_\n\n📂 *Выберите категорию:*"
+    sent = await update.effective_message.reply_text(
+        catalog_text, parse_mode="Markdown",
         reply_markup=InlineKeyboardMarkup(kb))
+    last_bot_message[uid] = sent.message_id
 
 # ================================================================
 # ПОИСК / ИЗБРАННОЕ / ТОП
@@ -300,19 +330,16 @@ async def show_catalog(update, ctx):
     kb = [[InlineKeyboardButton(f"{CAT_EMOJI.get(c,'📦')} {c}", callback_data=f"cat_{c}")] for c in CATEGORIES]
     kb.append([InlineKeyboardButton("◀️ Назад", callback_data="back_main")])
 
-    # Показываем баннер ВЫШЕ каталога — сначала фото, потом каталог
+    # Баннер показываем текстом внутри сообщения каталога — без отправки новых сообщений
     banner = state_store.get("catalog_banner")
-    if banner and banner.get("photo_id"):
-        caption = banner.get("caption", "")
-        try:
-            await query.message.reply_photo(
-                photo=banner["photo_id"],
-                caption=caption if caption else None
-            )
-        except Exception:
-            pass
+    catalog_text = "📂 *Выберите категорию:*"
+    if banner and banner.get("photo_id") and banner.get("caption"):
+        cap = banner["caption"]
+        catalog_text = f"📣 _{cap}_\n\n📂 *Выберите категорию:*"
+    elif banner and banner.get("photo_id"):
+        catalog_text = "📣 _Реклама_ \n\n📂 *Выберите категорию:*"
 
-    await query.edit_message_text("📂 *Выберите категорию:*", parse_mode="Markdown",
+    await query.edit_message_text(catalog_text, parse_mode="Markdown",
                                    reply_markup=InlineKeyboardMarkup(kb))
 
 # ================================================================
@@ -359,21 +386,13 @@ async def show_category(update, ctx, category, page=0):
     showing = f"{start_i+1}–{min(end_i,total)} из {total}"
     cat_online = random.randint(8, 25)
 
-    # Саб-баннер показываем ВЫШЕ списка категории
+    # Саб-баннер показываем текстом внутри сообщения — без новых сообщений
     cat_banner = state_store.get("cat_banners", {}).get(category)
-    if cat_banner and page == 0 and cat_banner.get("photo_id"):
-        caption = cat_banner.get("caption", "")
-        try:
-            await query.message.reply_photo(
-                photo=cat_banner["photo_id"],
-                caption=caption if caption else None
-            )
-        except Exception:
-            pass
+    cat_header = f"{CAT_EMOJI.get(category,'📦')} *{category}* — {total} товаров\n_{showing}_ · 🟢 {cat_online} онлайн"
+    if cat_banner and page == 0 and cat_banner.get("photo_id") and cat_banner.get("caption"):
+        cat_header = f"📣 _{cat_banner['caption']}_\n\n" + cat_header
 
-    await query.edit_message_text(
-        f"{CAT_EMOJI.get(category,'📦')} *{category}* — {total} товаров\n_{showing}_ · 🟢 {cat_online} онлайн",
-        parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(kb))
+    await query.edit_message_text(cat_header, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(kb))
 
 async def show_product(update, ctx, pid, photo_idx=0):
     query = update.callback_query
@@ -1096,7 +1115,32 @@ async def button_handler(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
     if data == "back_main":
         await query.answer()
-        await start(update, ctx)
+        uid2 = update.effective_user.id
+        is_seller2 = uid2 in sellers
+        kb2 = [
+            [InlineKeyboardButton("🛒 Каталог товаров", callback_data="catalog"),
+             InlineKeyboardButton("🔍 Поиск", callback_data="search")],
+            [InlineKeyboardButton("🤖 Купить ИИ-помощника", callback_data="buy_ai")],
+            [InlineKeyboardButton("❤️ Избранное", callback_data="favorites"),
+             InlineKeyboardButton("🗂 Мои покупки", callback_data="my_purchases")],
+            [InlineKeyboardButton("🏆 Топ продавцов", callback_data="top_sellers")],
+        ]
+        if is_seller2:
+            kb2.insert(2, [InlineKeyboardButton("🏪 Мой магазин", callback_data="my_shop")])
+        else:
+            kb2.append([InlineKeyboardButton("📦 Стать продавцом", callback_data="become_seller")])
+        online2 = random.randint(70, 80)
+        viewers2 = random.randint(12, 28)
+        text2 = (
+            f"🎮 *SmartSalesAI* — цифровой магазин\n\n"
+            f"🟢 Сейчас онлайн: *{online2} человек*\n"
+            f"👁 Просматривают товары: *{viewers2}*\n\n"
+            "⚡ Отвечаю клиентам за 3 секунды (24/7)\n"
+            "💰 Продаю и консультирую как живой эксперт\n"
+            "📦 Моментально выдаю товар после оплаты\n\n"
+            "Твой бизнес больше не спит. Давай начнём!"
+        )
+        await query.edit_message_text(text2, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(kb2))
     elif data == "catalog":
         await show_catalog(update, ctx)
     elif data == "search":
