@@ -880,6 +880,7 @@ async def ai_respond(ctx, buyer_id, pid, buyer_name, seller_id):
     other_titles = [pr["title"] for pr in seller_prods if pr["title"] != p.get("title","")][:3]
     other_text = f"\nДругие товары: {', '.join(other_titles)}" if other_titles else ""
 
+    logger.info(f"AI вызывает Groq для buyer={buyer_id}, товар={p.get('title','')[:30]}")
     try:
         resp = groq_client.chat.completions.create(
             model="llama-3.1-8b-instant",
@@ -896,14 +897,15 @@ async def ai_respond(ctx, buyer_id, pid, buyer_name, seller_id):
         ai_text = resp.choices[0].message.content
         chat["ai_replied"] = True
         seller_name = seller.get("name", "Продавец")
+        logger.info(f"Groq ответил: {ai_text[:50]}")
         await ctx.bot.send_message(
             buyer_id,
             f"🤖 *{seller_name}:*\n\n{ai_text}",
             parse_mode="Markdown"
         )
-        logger.info(f"AI успешно ответил покупателю {buyer_id}")
+        logger.info(f"AI сообщение отправлено покупателю {buyer_id}")
     except Exception as e:
-        logger.error(f"AI ошибка: {e}")
+        logger.error(f"AI ошибка подробно: {type(e).__name__}: {e}")
 
 # ================================================================
 # МОЙ МАГАЗИН
