@@ -246,12 +246,20 @@ async def show_catalog_cmd(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         except Exception:
             pass
     banner = state_store.get("catalog_banner")
-    catalog_text = "📂 *Выберите категорию:*"
-    if banner and banner.get("photo_id") and banner.get("caption"):
-        cap = banner["caption"]
-        catalog_text = f"📣 _{cap}_\n\n📂 *Выберите категорию:*"
+    # Показываем фото баннера отдельным сообщением (только при явном открытии каталога)
+    if banner and banner.get("photo_id"):
+        caption = banner.get("caption", "")
+        try:
+            photo_msg = await update.effective_message.reply_photo(
+                photo=banner["photo_id"],
+                caption=caption if caption else None
+            )
+            # Сохраняем ID фото чтобы потом удалить
+            last_bot_message[uid] = photo_msg.message_id
+        except Exception:
+            pass
     sent = await update.effective_message.reply_text(
-        catalog_text, parse_mode="Markdown",
+        "📂 *Выберите категорию:*", parse_mode="Markdown",
         reply_markup=InlineKeyboardMarkup(kb))
     last_bot_message[uid] = sent.message_id
 
@@ -325,21 +333,25 @@ async def show_top_sellers(update, ctx):
 # ================================================================
 async def show_catalog(update, ctx):
     query = update.callback_query
+    uid = update.effective_user.id
     await query.answer()
 
     kb = [[InlineKeyboardButton(f"{CAT_EMOJI.get(c,'📦')} {c}", callback_data=f"cat_{c}")] for c in CATEGORIES]
     kb.append([InlineKeyboardButton("◀️ Назад", callback_data="back_main")])
 
-    # Баннер показываем текстом внутри сообщения каталога — без отправки новых сообщений
     banner = state_store.get("catalog_banner")
-    catalog_text = "📂 *Выберите категорию:*"
-    if banner and banner.get("photo_id") and banner.get("caption"):
-        cap = banner["caption"]
-        catalog_text = f"📣 _{cap}_\n\n📂 *Выберите категорию:*"
-    elif banner and banner.get("photo_id"):
-        catalog_text = "📣 _Реклама_ \n\n📂 *Выберите категорию:*"
+    # Показываем фото баннера — отдельным сообщением перед каталогом
+    if banner and banner.get("photo_id"):
+        caption = banner.get("caption", "")
+        try:
+            await query.message.reply_photo(
+                photo=banner["photo_id"],
+                caption=caption if caption else None
+            )
+        except Exception:
+            pass
 
-    await query.edit_message_text(catalog_text, parse_mode="Markdown",
+    await query.edit_message_text("📂 *Выберите категорию:*", parse_mode="Markdown",
                                    reply_markup=InlineKeyboardMarkup(kb))
 
 # ================================================================
@@ -386,13 +398,21 @@ async def show_category(update, ctx, category, page=0):
     showing = f"{start_i+1}–{min(end_i,total)} из {total}"
     cat_online = random.randint(8, 25)
 
-    # Саб-баннер показываем текстом внутри сообщения — без новых сообщений
+    # Саб-баннер — показываем фото отдельным сообщением перед списком
     cat_banner = state_store.get("cat_banners", {}).get(category)
-    cat_header = f"{CAT_EMOJI.get(category,'📦')} *{category}* — {total} товаров\n_{showing}_ · 🟢 {cat_online} онлайн"
-    if cat_banner and page == 0 and cat_banner.get("photo_id") and cat_banner.get("caption"):
-        cat_header = f"📣 _{cat_banner['caption']}_\n\n" + cat_header
+    if cat_banner and page == 0 and cat_banner.get("photo_id"):
+        caption = cat_banner.get("caption", "")
+        try:
+            await query.message.reply_photo(
+                photo=cat_banner["photo_id"],
+                caption=caption if caption else None
+            )
+        except Exception:
+            pass
 
-    await query.edit_message_text(cat_header, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(kb))
+    await query.edit_message_text(
+        f"{CAT_EMOJI.get(category,'📦')} *{category}* — {total} товаров\n_{showing}_ · 🟢 {cat_online} онлайн",
+        parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(kb))
 
 async def show_product(update, ctx, pid, photo_idx=0):
     query = update.callback_query
