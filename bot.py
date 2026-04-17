@@ -10,41 +10,66 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 import json
+import requests
 
-PERSIST_FILE = "banners_data.json"
+# Supabase credentials
+SUPABASE_URL = "https://zoyqyqbimotlxyesgyua.supabase.co"
+SUPABASE_KEY = "sb_publishable_xQ2GXRqOMQjWUdydJv9yrg_WFLbSHcO"
+SUPABASE_HEADERS = {
+    "apikey": SUPABASE_KEY,
+    "Authorization": f"Bearer {SUPABASE_KEY}",
+    "Content-Type": "application/json",
+    "Prefer": "resolution=merge-duplicates"
+}
 
 def save_banners():
-    """Сохраняем баннеры на диск"""
+    """Сохраняем баннеры в Supabase — переживает перезапуски"""
     try:
         data = {
-            "catalog_banner": state_store.get("catalog_banner"),
-            "cat_banners": state_store.get("cat_banners", {}),
-            "ad_products": ad_products,
-            "verified_sellers": list(verified_sellers),
+            "id": 1,  # всегда одна строка
+            "catalog_banner": json.dumps(state_store.get("catalog_banner")),
+            "cat_banners": json.dumps(state_store.get("cat_banners", {})),
+            "ad_products": json.dumps(ad_products),
+            "verified_sellers": json.dumps(list(verified_sellers)),
         }
-        with open(PERSIST_FILE, "w", encoding="utf-8") as f:
-            json.dump(data, f, ensure_ascii=False)
+        resp = requests.post(
+            f"{SUPABASE_URL}/rest/v1/bot_settings",
+            headers=SUPABASE_HEADERS,
+            json=data,
+            timeout=5
+        )
+        if resp.status_code not in (200, 201):
+            logger.error(f"save_banners error: {resp.status_code} {resp.text}")
     except Exception as e:
-        logger.error(f"save_banners error: {e}")
+        logger.error(f"save_banners exception: {e}")
 
 def load_banners():
-    """Загружаем баннеры с диска при старте"""
+    """Загружаем баннеры из Supabase при старте"""
     try:
-        with open(PERSIST_FILE, "r", encoding="utf-8") as f:
-            data = json.load(f)
-        if data.get("catalog_banner"):
-            state_store["catalog_banner"] = data["catalog_banner"]
-        if data.get("cat_banners"):
-            state_store["cat_banners"] = data["cat_banners"]
-        if data.get("ad_products"):
-            ad_products.extend(data["ad_products"])
-        if data.get("verified_sellers"):
-            verified_sellers.update(data["verified_sellers"])
-        logger.info("Баннеры загружены с диска")
-    except FileNotFoundError:
-        logger.info("Файл баннеров не найден — начинаем чисто")
+        resp = requests.get(
+            f"{SUPABASE_URL}/rest/v1/bot_settings?id=eq.1",
+            headers=SUPABASE_HEADERS,
+            timeout=5
+        )
+        if resp.status_code == 200 and resp.json():
+            row = resp.json()[0]
+            cb = json.loads(row.get("catalog_banner") or "null")
+            if cb:
+                state_store["catalog_banner"] = cb
+            catb = json.loads(row.get("cat_banners") or "{}")
+            if catb:
+                state_store["cat_banners"] = catb
+            adp = json.loads(row.get("ad_products") or "[]")
+            if adp:
+                ad_products.extend(adp)
+            vs = json.loads(row.get("verified_sellers") or "[]")
+            if vs:
+                verified_sellers.update(vs)
+            logger.info("Баннеры загружены из Supabase")
+        else:
+            logger.info("Нет сохранённых баннеров в Supabase")
     except Exception as e:
-        logger.error(f"load_banners error: {e}")
+        logger.error(f"load_banners exception: {e}")
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN", "")
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "")
 ADMIN_ID = int(os.environ.get("ADMIN_ID", "1048682172"))
