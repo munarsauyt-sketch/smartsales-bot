@@ -16,8 +16,8 @@ YOOMONEY_WALLET = "4100118679419062"
 AI_PRICE = 500
 AD_BANNER_3D = 500     # основной баннер 3 дня
 AD_BANNER_7D = 750     # основной баннер неделя
-AD_CAT_3D = 500        # саб-баннер 3 дня
-AD_CAT_7D = 750        # саб-баннер неделя
+AD_CAT_3D = 150        # саб-баннер 3 дня
+AD_CAT_7D = 250        # саб-баннер неделя
 AD_TOP_PRICE = 200
 VERIFIED_PRICE = 300
 groq_client = Groq(api_key=GROQ_API_KEY)
@@ -300,32 +300,13 @@ async def show_catalog(update, ctx):
 
     # Показываем основной баннер (если есть)
     banner = state_store.get("catalog_banner")
-    if banner:
-        p = products.get(banner.get("pid"), {})
-        s_name = sellers.get(banner.get("seller_id"), {}).get("name", "")
-        banner_text = (
-            f"📣 *Реклама* | {s_name}\n"
-            f"🛍 *{p.get('title','')}* — {p.get('price','')}₽\n"
-            f"{p.get('description','')[:80]}..."
-        )
-        photo_id = banner.get("photo_id")
+    if banner and banner.get("photo_id"):
+        caption = banner.get("caption", "")
         try:
-            if photo_id:
-                await query.message.reply_photo(
-                    photo=photo_id,
-                    caption=banner_text,
-                    parse_mode="Markdown",
-                    reply_markup=InlineKeyboardMarkup([
-                        [InlineKeyboardButton("👀 Посмотреть товар", callback_data=f"product_{banner['pid']}_0")]
-                    ])
-                )
-            else:
-                await query.message.reply_text(
-                    banner_text, parse_mode="Markdown",
-                    reply_markup=InlineKeyboardMarkup([
-                        [InlineKeyboardButton("👀 Посмотреть товар", callback_data=f"product_{banner['pid']}_0")]
-                    ])
-                )
+            await query.message.reply_photo(
+                photo=banner["photo_id"],
+                caption=caption if caption else None
+            )
         except Exception:
             pass
 
@@ -343,31 +324,13 @@ async def show_category(update, ctx, category, page=0):
 
     # Показываем саб-баннер для этой категории (если есть)
     cat_banner = state_store.get("cat_banners", {}).get(category)
-    if cat_banner and page == 0:
-        p = products.get(cat_banner.get("pid"), {})
-        s_name = sellers.get(cat_banner.get("seller_id"), {}).get("name", "")
-        banner_text = (
-            f"📣 *Реклама в {category}* | {s_name}\n"
-            f"🛍 *{p.get('title','')}* — {p.get('price','')}₽"
-        )
-        photo_id = cat_banner.get("photo_id")
+    if cat_banner and page == 0 and cat_banner.get("photo_id"):
+        caption = cat_banner.get("caption", "")
         try:
-            if photo_id:
-                await query.message.reply_photo(
-                    photo=photo_id,
-                    caption=banner_text,
-                    parse_mode="Markdown",
-                    reply_markup=InlineKeyboardMarkup([
-                        [InlineKeyboardButton("👀 Посмотреть", callback_data=f"product_{cat_banner['pid']}_0")]
-                    ])
-                )
-            else:
-                await query.message.reply_text(
-                    banner_text, parse_mode="Markdown",
-                    reply_markup=InlineKeyboardMarkup([
-                        [InlineKeyboardButton("👀 Посмотреть", callback_data=f"product_{cat_banner['pid']}_0")]
-                    ])
-                )
+            await query.message.reply_photo(
+                photo=cat_banner["photo_id"],
+                caption=caption if caption else None
+            )
         except Exception:
             pass
 
@@ -1037,6 +1000,49 @@ async def handle_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         user_states[uid] = None
         await update.message.reply_text(f"✅ Промокод `{code}` создан! Скидка: {disc}%", parse_mode="Markdown")
         return
+    # Подпись для основного баннера
+    if state == "uploading_main_banner_caption":
+        caption = "" if text.strip() == "-" else text.strip()
+        file_id = user_temp.get(uid, {}).get("banner_photo")
+        if file_id:
+            state_store["catalog_banner"] = {"photo_id": file_id, "caption": caption, "seller_id": uid}
+        user_states[uid] = None
+        await update.message.reply_text(
+            "✅ *Основной баннер активирован!*\n\n"
+            "Ваше изображение показывается всем при открытии каталога.",
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("◀️ Реклама", callback_data="ad_menu")]]))
+        uname = update.effective_user.username or str(uid)
+        try:
+            await ctx.bot.send_message(ADMIN_ID,
+                f"🖼 *Новый основной баннер!*\n👤 @{uname} (id: {uid})\nПодпись: {caption or 'нет'}",
+                parse_mode="Markdown")
+        except Exception:
+            pass
+        return
+
+    # Подпись для саб-баннера категории
+    if state == "uploading_cat_banner_caption":
+        caption = "" if text.strip() == "-" else text.strip()
+        file_id = user_temp.get(uid, {}).get("cat_banner_photo")
+        category = user_temp.get(uid, {}).get("cat_banner_category", "")
+        if file_id and category:
+            state_store["cat_banners"][category] = {"photo_id": file_id, "caption": caption, "seller_id": uid}
+        user_states[uid] = None
+        await update.message.reply_text(
+            f"✅ *Саб-баннер в {category} активирован!*\n\n"
+            "Ваше изображение показывается сверху в этой категории.",
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("◀️ Реклама", callback_data="ad_menu")]]))
+        uname = update.effective_user.username or str(uid)
+        try:
+            await ctx.bot.send_message(ADMIN_ID,
+                f"🎯 *Новый саб-баннер!*\n👤 @{uname} (id: {uid})\nКатегория: {category}\nПодпись: {caption or 'нет'}",
+                parse_mode="Markdown")
+        except Exception:
+            pass
+        return
+
     await update.message.reply_text("Используйте /start")
 
 async def handle_photo(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
@@ -1060,39 +1066,36 @@ async def handle_photo(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     # Фото для ОСНОВНОГО баннера каталога
     if state == "uploading_main_banner":
         file_id = update.message.photo[-1].file_id
-        state_store["catalog_banner"] = {"photo_id": file_id, "seller_id": uid}
-        user_states[uid] = None
+        # Сохраняем фото и просим подпись
+        if uid not in user_temp:
+            user_temp[uid] = {}
+        user_temp[uid]["banner_photo"] = file_id
+        user_states[uid] = "uploading_main_banner_caption"
         await update.message.reply_text(
-            "✅ *Основной баннер активирован!*\n\nТеперь ваше изображение показывается всем при открытии каталога.",
-            parse_mode="Markdown",
-            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("◀️ Реклама", callback_data="ad_menu")]]))
-        # Уведомляем админа
-        uname = update.effective_user.username or str(uid)
-        try:
-            await ctx.bot.send_message(ADMIN_ID,
-                f"🖼 *Новый основной баннер!*\n👤 @{uname} (id: {uid})\n\nБаннер активирован автоматически.",
-                parse_mode="Markdown")
-        except Exception:
-            pass
+            "✅ Фото получено!\n\n"
+            "Теперь напишите подпись под баннером\n"
+            "(например: *Продаю аккаунты BS, пишите @username*) \n\n"
+            "Или напишите «-» чтобы без подписи.",
+            parse_mode="Markdown")
         return
+
+    # Подпись для основного баннера (обрабатывается в handle_message, но фото нет — пустой return)
 
     # Фото для САБ-баннера категории
     if state and state.startswith("uploading_cat_banner_"):
         category = state[len("uploading_cat_banner_"):]
         file_id = update.message.photo[-1].file_id
-        state_store["cat_banners"][category] = {"photo_id": file_id, "seller_id": uid}
-        user_states[uid] = None
+        if uid not in user_temp:
+            user_temp[uid] = {}
+        user_temp[uid]["cat_banner_photo"] = file_id
+        user_temp[uid]["cat_banner_category"] = category
+        user_states[uid] = "uploading_cat_banner_caption"
         await update.message.reply_text(
-            f"✅ *Саб-баннер в {category} активирован!*\n\nВаше изображение показывается сверху в этой категории.",
-            parse_mode="Markdown",
-            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("◀️ Реклама", callback_data="ad_menu")]]))
-        uname = update.effective_user.username or str(uid)
-        try:
-            await ctx.bot.send_message(ADMIN_ID,
-                f"🎯 *Новый саб-баннер!*\n👤 @{uname} (id: {uid})\nКатегория: {category}\n\nАктивирован автоматически.",
-                parse_mode="Markdown")
-        except Exception:
-            pass
+            f"✅ Фото для *{category}* получено!\n\n"
+            "Теперь напишите подпись под баннером\n"
+            "(например: *Лучшие аккаунты BS, пишите @username*) \n\n"
+            "Или напишите «-» чтобы без подписи.",
+            parse_mode="Markdown")
         return
 
 # ================================================================
