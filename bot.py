@@ -246,16 +246,18 @@ async def show_catalog_cmd(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         except Exception:
             pass
     banner = state_store.get("catalog_banner")
-    # Показываем фото баннера отдельным сообщением (только при явном открытии каталога)
     if banner and banner.get("photo_id"):
+        # Отправляем одно сообщение: фото + подпись + кнопки категорий
         caption = banner.get("caption", "")
+        full_caption = (caption + "\n\n" if caption else "") + "📂 Выберите категорию:"
         try:
-            photo_msg = await update.effective_message.reply_photo(
+            sent = await update.effective_message.reply_photo(
                 photo=banner["photo_id"],
-                caption=caption if caption else None
+                caption=full_caption,
+                reply_markup=InlineKeyboardMarkup(kb)
             )
-            # Сохраняем ID фото чтобы потом удалить
-            last_bot_message[uid] = photo_msg.message_id
+            last_bot_message[uid] = sent.message_id
+            return
         except Exception:
             pass
     sent = await update.effective_message.reply_text(
@@ -340,17 +342,22 @@ async def show_catalog(update, ctx):
     kb.append([InlineKeyboardButton("◀️ Назад", callback_data="back_main")])
 
     banner = state_store.get("catalog_banner")
-    # Показываем фото баннера — отдельным сообщением перед каталогом
     if banner and banner.get("photo_id"):
+        # Заменяем текущее сообщение на фото с кнопками — одно сообщение, не два
         caption = banner.get("caption", "")
+        full_caption = (caption + "\n\n" if caption else "") + "📂 Выберите категорию:"
         try:
-            await query.message.reply_photo(
-                photo=banner["photo_id"],
-                caption=caption if caption else None
+            from telegram import InputMediaPhoto
+            await query.edit_message_media(
+                media=InputMediaPhoto(
+                    media=banner["photo_id"],
+                    caption=full_caption
+                ),
+                reply_markup=InlineKeyboardMarkup(kb)
             )
+            return
         except Exception:
             pass
-
     await query.edit_message_text("📂 *Выберите категорию:*", parse_mode="Markdown",
                                    reply_markup=InlineKeyboardMarkup(kb))
 
@@ -398,15 +405,22 @@ async def show_category(update, ctx, category, page=0):
     showing = f"{start_i+1}–{min(end_i,total)} из {total}"
     cat_online = random.randint(8, 25)
 
-    # Саб-баннер — показываем фото отдельным сообщением перед списком
+    # Саб-баннер — заменяем сообщение на фото с кнопками (одно сообщение)
     cat_banner = state_store.get("cat_banners", {}).get(category)
+    cat_title = f"{CAT_EMOJI.get(category,'📦')} {category} — {total} товаров | {showing} · 🟢 {cat_online} онлайн"
     if cat_banner and page == 0 and cat_banner.get("photo_id"):
         caption = cat_banner.get("caption", "")
+        full_caption = (caption + "\n\n" if caption else "") + cat_title
         try:
-            await query.message.reply_photo(
-                photo=cat_banner["photo_id"],
-                caption=caption if caption else None
+            from telegram import InputMediaPhoto
+            await query.edit_message_media(
+                media=InputMediaPhoto(
+                    media=cat_banner["photo_id"],
+                    caption=full_caption
+                ),
+                reply_markup=InlineKeyboardMarkup(kb)
             )
+            return
         except Exception:
             pass
 
