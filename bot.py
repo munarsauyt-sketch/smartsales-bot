@@ -23,14 +23,25 @@ SUPABASE_HEADERS = {
 }
 
 def save_banners():
-    """Сохраняем баннеры в Supabase — переживает перезапуски"""
+    """Сохраняем баннеры и настройки ИИ в Supabase"""
     try:
+        # Собираем настройки ИИ для всех продавцов
+        ai_settings_data = {
+            str(uid): {
+                "ai_timer": s.get("ai_timer", "2m"),
+                "ai_prompt": s.get("ai_prompt", ""),
+                "ai_enabled": s.get("ai_enabled", False),
+                "ai_paid": s.get("ai_paid", False),
+            }
+            for uid, s in sellers.items()
+        }
         data = {
-            "id": 1,  # всегда одна строка
+            "id": 1,
             "catalog_banner": json.dumps(state_store.get("catalog_banner")),
             "cat_banners": json.dumps(state_store.get("cat_banners", {})),
             "ad_products": json.dumps(ad_products),
             "verified_sellers": json.dumps(list(verified_sellers)),
+            "ai_settings": json.dumps(ai_settings_data),
         }
         resp = requests.post(
             f"{SUPABASE_URL}/rest/v1/bot_settings",
@@ -825,58 +836,85 @@ async def start_chat(update, ctx, pid):
     pending_ai_tasks[uid] = task
 
 async def ai_instant_intro(ctx, buyer_id, pid, buyer_name):
-    await asyncio.sleep(60)
-    chat = active_chats.get(buyer_id)
-    if not chat:
-        return
-    p = products.get(pid, {})
-    seller = sellers.get(chat["seller_id"], {})
-    prompt = seller.get("ai_prompt", "") or DEFAULT_AI_PROMPT
-    seller_prods = [products[pid2] for pid2 in seller.get("products", []) if pid2 in products]
-    other_prods = [p2["title"] for p2 in seller_prods if p2["title"] != p.get("title","")][:3]
-    other_text = f"\nДругие товары: {', '.join(other_prods)}" if other_prods else ""
-    try:
-        resp = groq_client.chat.completions.create(
-            model="llama-3.1-8b-instant",
-            messages=[
-                {"role": "system", "content": f"{prompt}\nТовар: {p.get('title','')}. {p.get('description','')}. Цена: {p.get('price','')}₽.{other_text}"},
-                {"role": "user", "content": f"Покупатель {buyer_name} открыл чат. Напиши короткое приветствие и 2-3 главных преимущества товара. Максимум 3 предложения."}
-            ], max_tokens=150)
-        intro_text = resp.choices[0].message.content
-        await ctx.bot.send_message(buyer_id, f"🤖 *{seller.get('name','Продавец')}:*\n\n{intro_text}", parse_mode="Markdown")
-    except Exception as e:
-        logger.error(f"AI intro error: {e}")
-
-async def ai_reply_after_delay(ctx, buyer_id, pid, buyer_name):
+    """ИИ отвечает покупателю через таймер продавца"""
     chat_info = active_chats.get(buyer_id, {})
     seller_id = chat_info.get("seller_id")
     seller_tmp = sellers.get(seller_id, {})
     timer_key = seller_tmp.get("ai_timer", "2m")
     delay = AI_TIMERS.get(timer_key, ("2 минуты", 120))[1]
+
+    logger.info(f"AI timer started: {delay}s for buyer {buyer_id}, seller {seller_id}")
     await asyncio.sleep(delay)
+
+    chat = active_chats.get(buyer_id)
+    if not chat or chat.get("ai_replied"):
+        logger.info(f"AI skipped: chat={chat}, ai_replied={chat.get('ai_replied') if chat else None}")
+        return
+
+    p = products.get(pid, {})
+    seller = sellers.get(seller_id, {})
+
+    if not seller.get("ai_enabled") or not seller.get("ai_paid"):
+        logger.info(f"AI disabled for seller {seller_id}: enabled={seller.get('ai_enabled')} paid={seller.get('ai_paid')}")
+        return
+
+    prompt = seller.get("ai_prompt", "") or DEFAULT_AI_PROMPT
+    seller_prods = [products[pid2] for pid2 in seller.get("products", []) if pid2 in products]
+    other_prods = [p2["title"] for p2 in seller_prods if p2["title"] != p.get("title","")][:3]
+    other_text = f"\nДругие товары продавца: {', '.join(other_prods)}" if other_prods else ""
+
+    try:
+        resp = groq_client.chat.completions.create(
+            model="llama-3.1-8b-instant",
+            messages=[
+                {"role": "system", "content": f"{prompt}\nТовар: {p.get('title','')}. {p.get('description','')}. Цена: {p.get('price','')}₽.{other_text}"},
+                {"role": "user", "content": f"Покупатель {buyer_name} написал. Ответь коротко — представься и назови 2-3 преимущества товара. Максимум 3 предложения на русском."}
+            ], max_tokens=200)
+        ai_text = resp.choices[0].message.content
+        chat["ai_replied"] = True
+        seller_name = seller.get("name", "Продавец")
+        await ctx.bot.send_message(buyer_id, f"🤖 *{seller_name}:*\n\n{ai_text}", parse_mode="Markdown")
+        logger.info(f"AI replied OK to buyer {buyer_id}")
+    except Exception as e:
+        logger.error(f"AI intro error: {e}")
+
+async def ai_reply_after_delay(ctx, buyer_id, pid, buyer_name):
+    """Резервный ответ если покупатель написал снова"""
+    chat_info = active_chats.get(buyer_id, {})
+    seller_id = chat_info.get("seller_id")
+    seller_tmp = sellers.get(seller_id, {})
+    timer_key = seller_tmp.get("ai_timer", "2m")
+    delay = AI_TIMERS.get(timer_key, ("2 минуты", 120))[1]
+
+    await asyncio.sleep(delay + 30)
+
     chat = active_chats.get(buyer_id)
     if not chat or chat.get("ai_replied"):
         return
+
     p = products.get(pid, {})
-    seller = sellers.get(chat["seller_id"], {})
+    seller = sellers.get(seller_id, {})
+
     if not seller.get("ai_enabled") or not seller.get("ai_paid"):
         return
+
     prompt = seller.get("ai_prompt", "") or DEFAULT_AI_PROMPT
     seller_prods = [products[pid2] for pid2 in seller.get("products", []) if pid2 in products]
     other_prods = [p2["title"] for p2 in seller_prods if p2["title"] != p.get("title","")][:3]
     other_text = f"\nДругие товары: {', '.join(other_prods)}" if other_prods else ""
+
     try:
         resp = groq_client.chat.completions.create(
             model="llama-3.1-8b-instant",
             messages=[
                 {"role": "system", "content": f"{prompt}\nТовар: {p.get('title','')}. {p.get('description','')}. Цена: {p.get('price','')}₽.{other_text} Отвечай кратко на русском."},
-                {"role": "user", "content": f"Покупатель {buyer_name} ждёт ответа. Ответь коротко — 2-3 предложения."}
-            ], max_tokens=200)
+                {"role": "user", "content": f"Покупатель {buyer_name} ещё ждёт. Уточни детали и предложи помочь. 2 предложения."}
+            ], max_tokens=150)
         ai_text = resp.choices[0].message.content
         chat["ai_replied"] = True
         await ctx.bot.send_message(buyer_id, f"🤖 *ИИ-продавец:*\n\n{ai_text}", parse_mode="Markdown")
     except Exception as e:
-        logger.error(f"AI error: {e}")
+        logger.error(f"AI delay error: {e}")
 
 # ================================================================
 # МОЙ МАГАЗИН
@@ -1307,6 +1345,7 @@ async def handle_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if state == "set_ai_prompt":
         if uid in sellers:
             sellers[uid]["ai_prompt"] = text
+        save_banners()
         user_states[uid] = None
         await update.message.reply_text("✅ Промпт ИИ обновлён!")
         return
@@ -1699,6 +1738,7 @@ async def button_handler(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         await query.answer()
         if uid in sellers:
             sellers[uid]["ai_enabled"] = not sellers[uid].get("ai_enabled", False)
+        save_banners()
         await ai_settings(update, ctx)
     elif data == "toggle_ai_main":
         await query.answer()
@@ -1727,6 +1767,7 @@ async def button_handler(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         if timer_key in AI_TIMERS and uid in sellers:
             sellers[uid]["ai_timer"] = timer_key
             label = AI_TIMERS[timer_key][0]
+            save_banners()
             await query.answer(f"✅ Таймер: {label}")
         await ai_settings(update, ctx)
     elif data == "edit_ai_prompt":
@@ -1822,6 +1863,7 @@ async def handle_admin_commands(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         else:
             sellers[target_id]["ai_paid"] = True
             sellers[target_id]["ai_enabled"] = True
+        save_banners()
         try:
             await ctx.bot.send_message(target_id, "🎉 *ИИ-помощник активирован!*", parse_mode="Markdown")
         except Exception:
