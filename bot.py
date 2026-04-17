@@ -42,8 +42,56 @@ state_store = {
     "catalog_banner": None,
     "cat_banners": {}
 }
-# Храним ID последнего сообщения бота для каждого пользователя
+# Храним ID и тип последнего сообщения бота для каждого пользователя
 last_bot_message = {}  # uid -> message_id
+last_msg_is_photo = {}  # uid -> bool (True если последнее сообщение — фото)
+
+async def safe_edit_text(query, uid, text, keyboard, parse_mode="Markdown"):
+    """Редактирует сообщение — если оно фото, сначала меняет на текст"""
+    if last_msg_is_photo.get(uid):
+        try:
+            from telegram import InputMediaPhoto
+            # Нельзя фото -> текст через edit_message_media, удаляем и шлём новое
+            await query.message.delete()
+        except Exception:
+            pass
+        try:
+            sent = await query.message.reply_text(text, parse_mode=parse_mode, reply_markup=keyboard)
+            last_bot_message[uid] = sent.message_id
+            last_msg_is_photo[uid] = False
+            return
+        except Exception:
+            pass
+    try:
+        await query.edit_message_text(text, parse_mode=parse_mode, reply_markup=keyboard)
+        last_msg_is_photo[uid] = False
+    except Exception:
+        pass
+
+async def safe_edit_photo(query, uid, photo_id, caption, keyboard):
+    """Редактирует сообщение заменяя на фото"""
+    from telegram import InputMediaPhoto
+    if last_msg_is_photo.get(uid):
+        try:
+            await query.edit_message_media(
+                media=InputMediaPhoto(media=photo_id, caption=caption),
+                reply_markup=keyboard
+            )
+            last_msg_is_photo[uid] = True
+            return
+        except Exception:
+            pass
+    # Текстовое -> фото: удаляем и шлём новое
+    try:
+        await query.message.delete()
+    except Exception:
+        pass
+    try:
+        sent = await query.message.reply_photo(photo=photo_id, caption=caption, reply_markup=keyboard)
+        last_bot_message[uid] = sent.message_id
+        last_msg_is_photo[uid] = True
+    except Exception:
+        pass
 verified_sellers = set()
 all_users = set()
 PAGE_SIZE = 8
@@ -343,29 +391,18 @@ async def show_catalog(update, ctx):
 
     banner = state_store.get("catalog_banner")
     if banner and banner.get("photo_id"):
-        # Заменяем текущее сообщение на фото с кнопками — одно сообщение, не два
         caption = banner.get("caption", "")
         full_caption = (caption + "\n\n" if caption else "") + "📂 Выберите категорию:"
-        try:
-            from telegram import InputMediaPhoto
-            await query.edit_message_media(
-                media=InputMediaPhoto(
-                    media=banner["photo_id"],
-                    caption=full_caption
-                ),
-                reply_markup=InlineKeyboardMarkup(kb)
-            )
-            return
-        except Exception:
-            pass
-    await query.edit_message_text("📂 *Выберите категорию:*", parse_mode="Markdown",
-                                   reply_markup=InlineKeyboardMarkup(kb))
+        await safe_edit_photo(query, uid, banner["photo_id"], full_caption, InlineKeyboardMarkup(kb))
+    else:
+        await safe_edit_text(query, uid, "📂 *Выберите категорию:*", InlineKeyboardMarkup(kb))
 
 # ================================================================
 # КАТЕГОРИЯ — с саб-баннером
 # ================================================================
 async def show_category(update, ctx, category, page=0):
     query = update.callback_query
+    uid = update.effective_user.id
     await query.answer()
 
     ad_items = [(pid, products[pid]) for pid in ad_products
@@ -405,28 +442,17 @@ async def show_category(update, ctx, category, page=0):
     showing = f"{start_i+1}–{min(end_i,total)} из {total}"
     cat_online = random.randint(8, 25)
 
-    # Саб-баннер — заменяем сообщение на фото с кнопками (одно сообщение)
+    # Саб-баннер — фото поверх сообщения с кнопками
     cat_banner = state_store.get("cat_banners", {}).get(category)
     cat_title = f"{CAT_EMOJI.get(category,'📦')} {category} — {total} товаров | {showing} · 🟢 {cat_online} онлайн"
     if cat_banner and page == 0 and cat_banner.get("photo_id"):
         caption = cat_banner.get("caption", "")
         full_caption = (caption + "\n\n" if caption else "") + cat_title
-        try:
-            from telegram import InputMediaPhoto
-            await query.edit_message_media(
-                media=InputMediaPhoto(
-                    media=cat_banner["photo_id"],
-                    caption=full_caption
-                ),
-                reply_markup=InlineKeyboardMarkup(kb)
-            )
-            return
-        except Exception:
-            pass
-
-    await query.edit_message_text(
-        f"{CAT_EMOJI.get(category,'📦')} *{category}* — {total} товаров\n_{showing}_ · 🟢 {cat_online} онлайн",
-        parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(kb))
+        await safe_edit_photo(query, uid, cat_banner["photo_id"], full_caption, InlineKeyboardMarkup(kb))
+    else:
+        await safe_edit_text(query, uid,
+            f"{CAT_EMOJI.get(category,'📦')} *{category}* — {total} товаров\n_{showing}_ · 🟢 {cat_online} онлайн",
+            InlineKeyboardMarkup(kb))
 
 async def show_product(update, ctx, pid, photo_idx=0):
     query = update.callback_query
@@ -473,7 +499,8 @@ async def show_product(update, ctx, pid, photo_idx=0):
          InlineKeyboardButton("🤝 Гарантия", callback_data=f"guarantee_{pid}")],
         [InlineKeyboardButton("◀️ Назад", callback_data=f"cat_{p['category']}")],
     ]
-    await query.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(kb))
+    uid_p = update.effective_user.id
+    await safe_edit_text(query, uid_p, text, InlineKeyboardMarkup(kb))
 
 # ================================================================
 # ОТЗЫВЫ / ПРОМОКОД / ГАРАНТИЯ
@@ -492,7 +519,8 @@ async def show_reviews(update, ctx, pid):
             text += f"{'⭐'*r['rating']} *{r['buyer_name']}*\n{r['text']}\n\n"
     kb = [[InlineKeyboardButton("✍️ Оставить отзыв", callback_data=f"leave_review_{pid}")],
           [InlineKeyboardButton("◀️ Назад", callback_data=f"product_{pid}_0")]]
-    await query.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(kb))
+    uid_r = update.effective_user.id
+    await safe_edit_text(query, uid_r, text, InlineKeyboardMarkup(kb))
 
 async def promo_start(update, ctx, pid):
     query = update.callback_query
@@ -1149,8 +1177,7 @@ async def button_handler(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
     if data == "back_main":
         await query.answer()
-        uid2 = update.effective_user.id
-        is_seller2 = uid2 in sellers
+        is_seller2 = uid in sellers
         kb2 = [
             [InlineKeyboardButton("🛒 Каталог товаров", callback_data="catalog"),
              InlineKeyboardButton("🔍 Поиск", callback_data="search")],
@@ -1174,7 +1201,7 @@ async def button_handler(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             "📦 Моментально выдаю товар после оплаты\n\n"
             "Твой бизнес больше не спит. Давай начнём!"
         )
-        await query.edit_message_text(text2, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(kb2))
+        await safe_edit_text(query, uid, text2, InlineKeyboardMarkup(kb2))
     elif data == "catalog":
         await show_catalog(update, ctx)
     elif data == "search":
