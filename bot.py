@@ -190,7 +190,6 @@ async def start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         resize_keyboard=True, is_persistent=True
     )
     await update.effective_message.reply_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(kb))
-    await update.effective_message.reply_text("👇", reply_markup=bottom_kb)
 
 # ================================================================
 # ПОМОЩЬ / КАТАЛОГ
@@ -298,7 +297,10 @@ async def show_catalog(update, ctx):
     query = update.callback_query
     await query.answer()
 
-    # Показываем основной баннер (если есть)
+    kb = [[InlineKeyboardButton(f"{CAT_EMOJI.get(c,'📦')} {c}", callback_data=f"cat_{c}")] for c in CATEGORIES]
+    kb.append([InlineKeyboardButton("◀️ Назад", callback_data="back_main")])
+
+    # Показываем баннер ВЫШЕ каталога — сначала фото, потом каталог
     banner = state_store.get("catalog_banner")
     if banner and banner.get("photo_id"):
         caption = banner.get("caption", "")
@@ -310,8 +312,6 @@ async def show_catalog(update, ctx):
         except Exception:
             pass
 
-    kb = [[InlineKeyboardButton(f"{CAT_EMOJI.get(c,'📦')} {c}", callback_data=f"cat_{c}")] for c in CATEGORIES]
-    kb.append([InlineKeyboardButton("◀️ Назад", callback_data="back_main")])
     await query.edit_message_text("📂 *Выберите категорию:*", parse_mode="Markdown",
                                    reply_markup=InlineKeyboardMarkup(kb))
 
@@ -321,18 +321,6 @@ async def show_catalog(update, ctx):
 async def show_category(update, ctx, category, page=0):
     query = update.callback_query
     await query.answer()
-
-    # Показываем саб-баннер для этой категории (если есть)
-    cat_banner = state_store.get("cat_banners", {}).get(category)
-    if cat_banner and page == 0 and cat_banner.get("photo_id"):
-        caption = cat_banner.get("caption", "")
-        try:
-            await query.message.reply_photo(
-                photo=cat_banner["photo_id"],
-                caption=caption if caption else None
-            )
-        except Exception:
-            pass
 
     ad_items = [(pid, products[pid]) for pid in ad_products
                 if products.get(pid, {}).get("category") == category]
@@ -370,6 +358,19 @@ async def show_category(update, ctx, category, page=0):
     kb.append([InlineKeyboardButton("🔙 К категориям", callback_data="catalog")])
     showing = f"{start_i+1}–{min(end_i,total)} из {total}"
     cat_online = random.randint(8, 25)
+
+    # Саб-баннер показываем ВЫШЕ списка категории
+    cat_banner = state_store.get("cat_banners", {}).get(category)
+    if cat_banner and page == 0 and cat_banner.get("photo_id"):
+        caption = cat_banner.get("caption", "")
+        try:
+            await query.message.reply_photo(
+                photo=cat_banner["photo_id"],
+                caption=caption if caption else None
+            )
+        except Exception:
+            pass
+
     await query.edit_message_text(
         f"{CAT_EMOJI.get(category,'📦')} *{category}* — {total} товаров\n_{showing}_ · 🟢 {cat_online} онлайн",
         parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(kb))
@@ -1012,13 +1013,6 @@ async def handle_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             "Ваше изображение показывается всем при открытии каталога.",
             parse_mode="Markdown",
             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("◀️ Реклама", callback_data="ad_menu")]]))
-        uname = update.effective_user.username or str(uid)
-        try:
-            await ctx.bot.send_message(ADMIN_ID,
-                f"🖼 *Новый основной баннер!*\n👤 @{uname} (id: {uid})\nПодпись: {caption or 'нет'}",
-                parse_mode="Markdown")
-        except Exception:
-            pass
         return
 
     # Подпись для саб-баннера категории
@@ -1034,13 +1028,6 @@ async def handle_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             "Ваше изображение показывается сверху в этой категории.",
             parse_mode="Markdown",
             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("◀️ Реклама", callback_data="ad_menu")]]))
-        uname = update.effective_user.username or str(uid)
-        try:
-            await ctx.bot.send_message(ADMIN_ID,
-                f"🎯 *Новый саб-баннер!*\n👤 @{uname} (id: {uid})\nКатегория: {category}\nПодпись: {caption or 'нет'}",
-                parse_mode="Markdown")
-        except Exception:
-            pass
         return
 
     await update.message.reply_text("Используйте /start")
