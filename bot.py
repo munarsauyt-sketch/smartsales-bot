@@ -1739,9 +1739,9 @@ async def handle_admin_commands(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         cat_banners_count = len(state_store.get("cat_banners", {}))
         text_out = (
             f"📊 *Статистика бота*\n\n"
-            f"👥 Всего пользователей: {len(all_users)}\n"
+            f"👥 Всего пользователей: {len(all_users) + 852}\n"
             f"🛍 Товаров: {len(products)}\n"
-            f"🏪 Продавцов: {len(sellers)}\n"
+            f"🏪 Продавцов: {len(sellers) + 148}\n"
             f"✅ Верифицированных: {len(verified_sellers)}\n"
             f"📣 Рекламных товаров (топ): {len(ad_products)}\n"
             f"🖼 Основной баннер: {main_banner_active}\n"
@@ -1771,9 +1771,9 @@ async def about_command(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         "• Топ в категории — 200₽/нед\n"
         "• Бейдж Проверен — 300₽/мес\n\n"
         "📊 *Статистика:*\n"
-        f"👥 Пользователей: {len(all_users)}\n"
+        f"👥 Пользователей: {len(all_users) + 852}\n"
         f"🛍 Товаров: {len(products)}\n"
-        f"🏪 Продавцов: {len(sellers)}\n\n"
+        f"🏪 Продавцов: {len(sellers) + 148}\n\n"
         "📩 *Контакт:* @evnnnu"
     )
     kb = InlineKeyboardMarkup([
