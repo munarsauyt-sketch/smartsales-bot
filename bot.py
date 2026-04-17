@@ -813,7 +813,20 @@ async def start_chat(update, ctx, pid):
         return
     seller_id = p["seller_id"]
     if uid == seller_id:
-        await query.edit_message_text("❌ Нельзя написать самому себе.")
+        # Для теста — если покупатель это сам продавец, всё равно запускаем ИИ
+        logger.info(f"Self-chat test: buyer={uid} seller={seller_id}, запускаем ИИ")
+        active_chats[uid] = {"seller_id": seller_id, "product_id": pid, "ai_replied": False}
+        user_states[uid] = f"chatting_{seller_id}_{pid}"
+        buyer_name = update.effective_user.first_name or str(uid)
+        await query.edit_message_text(
+            f"💬 *Тест ИИ-продавца*\n\nТовар: _{p['title']}_\nЦена: *{p['price']}₽*\n\n"
+            "✍️ Напишите сообщение.\n⏱ ИИ ответит через таймер.\n\n/start — выйти",
+            parse_mode="Markdown")
+        if uid in pending_ai_tasks:
+            pending_ai_tasks[uid].cancel()
+        task = asyncio.create_task(ai_respond(ctx, uid, pid, buyer_name, seller_id))
+        pending_ai_tasks[uid] = task
+        logger.info(f"AI таск создан для self-test: buyer={uid}")
         return
     active_chats[uid] = {"seller_id": seller_id, "product_id": pid, "ai_replied": False}
     user_states[uid] = f"chatting_{seller_id}_{pid}"
@@ -1250,6 +1263,13 @@ async def handle_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
                 parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(kb))
         except Exception:
             pass
+        # Если таск ИИ не существует — создаём заново (защита от потери таска при деплое)
+        if uid not in pending_ai_tasks or pending_ai_tasks[uid].done():
+            if uid not in active_chats:
+                active_chats[uid] = {"seller_id": seller_id, "product_id": pid, "ai_replied": False}
+            task = asyncio.create_task(ai_respond(ctx, uid, pid, buyer_name, seller_id))
+            pending_ai_tasks[uid] = task
+            logger.info(f"AI таск пересоздан для buyer={uid}")
         await update.message.reply_text("✅ Отправлено!")
         return
     if state and state.startswith("replying_to_"):
@@ -1952,7 +1972,13 @@ def main():
     app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     logger.info("SmartSalesAI Bot started!")
-    app.run_polling(drop_pending_updates=True)
+    app.run_polling(
+        drop_pending_updates=True,
+        allowed_updates=["message", "callback_query"],
+        pool_timeout=20,
+        connect_timeout=20,
+        read_timeout=20,
+    )
 
 if __name__ == "__main__":
     main()
